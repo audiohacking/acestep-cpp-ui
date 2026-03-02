@@ -696,9 +696,9 @@ router.get('/random-description', authMiddleware, async (_req: AuthenticatedRequ
 router.get('/health', async (_req, res: Response) => {
   try {
     const healthy = await checkSpaceHealth();
-    res.json({ healthy });
+    res.json({ healthy, aceStepUrl: config.acestep.apiUrl });
   } catch (error) {
-    res.json({ healthy: false, error: (error as Error).message });
+    res.json({ healthy: false, aceStepUrl: config.acestep.apiUrl, error: (error as Error).message });
   }
 });
 

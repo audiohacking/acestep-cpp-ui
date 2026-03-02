@@ -165,7 +165,7 @@ async function buildGradioArgs(params: GenerationParams): Promise<unknown[]> {
     params.instruction || 'Fill the audio semantic mask with the style described in the text prompt.', // 17: Instruction
     params.audioCoverStrength ?? 1.0,                             // 18: Audio Cover Strength
     0.0,                                                          // 19: Cover Noise Strength (ACE-Step v1.5 new param, default 0.0)
-    params.taskType || 'text2music',                              // 20: Task Type
+    (params.taskType === 'audio2audio' ? 'cover' : params.taskType) || 'text2music', // 20: Task Type
     params.useAdg ?? false,                                       // 21: Use ADG
     params.cfgIntervalStart ?? 0.0,                               // 22: CFG Interval Start
     params.cfgIntervalEnd ?? 1.0,                                 // 23: CFG Interval End
@@ -679,7 +679,8 @@ async function processGenerationViaPython(
     if (params.vocalLanguage) args.push('--vocal-language', params.vocalLanguage);
     if (params.seed !== undefined && params.seed >= 0 && !params.randomSeed) args.push('--seed', String(params.seed));
     if (params.shift !== undefined) args.push('--shift', String(params.shift));
-    if (params.taskType && params.taskType !== 'text2music') args.push('--task-type', params.taskType);
+    const resolvedTaskType = params.taskType === 'audio2audio' ? 'cover' : params.taskType;
+    if (resolvedTaskType && resolvedTaskType !== 'text2music') args.push('--task-type', resolvedTaskType);
 
     if (params.referenceAudioUrl) {
       args.push('--reference-audio', resolveAudioPath(params.referenceAudioUrl));
