@@ -199,16 +199,80 @@ function resolveAudioPath(audioUrl: string): string {
 //   <tmpDir>/request0.json → dit-vae   → <tmpDir>/request00.wav
 // ---------------------------------------------------------------------------
 
+/**
+ * Parse a space-separated list of extra CLI arguments from an env variable.
+ * Supports simple quoting: "hello world" is treated as a single argument.
+ * Example: ACE_QWEN3_EXTRA_ARGS="--threads 4" → ['--threads', '4']
+ */
+function parseExtraArgs(envVar: string | undefined): string[] {
+  if (!envVar?.trim()) return [];
+  const args: string[] = [];
+  const re = /(?:[^\s"']+|"[^"]*"|'[^']*')+/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(envVar)) !== null) {
+    args.push(m[0].replace(/^["']|["']$/g, ''));
+  }
+  return args;
+}
+
+// Sentinel text emitted by ggml-metal when the device is pre-M5 / pre-A19.
+// Seeing this in stderr on a non-zero exit means GPU init failed; we retry
+// with -ngl 0 so the binary falls back to CPU-only execution.
+const METAL_TENSOR_API_DISABLED_MSG = 'tensor API disabled for pre-M5 and pre-A19 devices';
+
+/** Build a human-readable error message from a failed binary run (max 2000 chars). */
+function buildBinaryError(label: string, result: { exitCode: number | null; stdout: string; stderr: string }): Error {
+  const msg = (result.stderr || result.stdout || `exit code ${result.exitCode}`).slice(0, 2000);
+  return new Error(`${label} failed: ${msg}`);
+}
+
+/** Returns true when the args already include a GPU-layers disable flag. */
+function hasNglFlag(args: string[]): boolean {
+  return args.includes('-ngl') || args.includes('--n-gpu-layers') || args.includes('--ngl');
+}
+
 /** Run a binary and return its captured stdout/stderr. Throws on non-zero exit. */
 async function runBinary(
   bin: string,
   args: string[],
   label: string,
+  env?: NodeJS.ProcessEnv,
 ): Promise<{ stdout: string; stderr: string }> {
+  const result = await runBinaryOnce(bin, args, label, env);
+
+  // Auto-retry without GPU layers when the Metal tensor API is unavailable
+  // (affects Apple Silicon M1–M4 with newer ggml builds).
+  // Note: extra args from DIT_VAE_EXTRA_ARGS / ACE_QWEN3_EXTRA_ARGS are already
+  // included in `args`, so hasNglFlag() correctly covers user-supplied flags too.
+  if (
+    result.exitCode !== 0 &&
+    result.stderr.includes(METAL_TENSOR_API_DISABLED_MSG) &&
+    !hasNglFlag(args)
+  ) {
+    console.warn(
+      `[Spawn] ${label}: Metal tensor API unavailable on this device — retrying with -ngl 0 (CPU-only)`,
+    );
+    const retry = await runBinaryOnce(bin, ['-ngl', '0', ...args], label, env);
+    if (retry.exitCode !== 0) throw buildBinaryError(label, retry);
+    return { stdout: retry.stdout, stderr: retry.stderr };
+  }
+
+  if (result.exitCode !== 0) throw buildBinaryError(label, result);
+
+  return { stdout: result.stdout, stderr: result.stderr };
+}
+
+/** Internal: spawn once and collect output. Never throws on non-zero exit. */
+function runBinaryOnce(
+  bin: string,
+  args: string[],
+  label: string,
+  env?: NodeJS.ProcessEnv,
+): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const proc = spawn(bin, args, {
       shell: false,
-      env:   { ...process.env },
+      env:   { ...process.env, ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -217,14 +281,7 @@ async function runBinary(
     proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
     proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
 
-    proc.on('close', (code) => {
-      if (code === 0) {
-        resolve({ stdout, stderr });
-      } else {
-        const msg = (stderr || stdout || `exit code ${code}`).slice(0, 500);
-        reject(new Error(`${label} failed: ${msg}`));
-      }
-    });
+    proc.on('close', (code) => resolve({ exitCode: code, stdout, stderr }));
     proc.on('error', (err) => reject(new Error(`${label} process error: ${err.message}`)));
   });
 }
@@ -294,6 +351,7 @@ async function runViaSpawn(
 
       const batchSize = Math.min(Math.max(params.batchSize ?? 1, 1), 8);
       if (batchSize > 1) lmArgs.push('--batch', String(batchSize));
+      lmArgs.push(...parseExtraArgs(process.env.ACE_QWEN3_EXTRA_ARGS));
 
       console.log(`[Spawn] Job ${jobId}: ace-qwen3 ${lmArgs.slice(0, 6).join(' ')} …`);
       await runBinary(lmBin, lmArgs, 'ace-qwen3');
@@ -344,6 +402,7 @@ async function runViaSpawn(
                                    ditArgs.push('--repainting-start', String(params.repaintingStart));
     if (params.repaintingEnd && params.repaintingEnd > 0)
                                    ditArgs.push('--repainting-end',   String(params.repaintingEnd));
+    ditArgs.push(...parseExtraArgs(process.env.DIT_VAE_EXTRA_ARGS));
 
     console.log(`[Spawn] Job ${jobId}: dit-vae ${ditArgs.slice(0, 6).join(' ')} …`);
     await runBinary(ditVaeBin, ditArgs, 'dit-vae');
