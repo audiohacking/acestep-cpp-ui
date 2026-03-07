@@ -8,7 +8,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ACESTEP_CPP_REPO: https://github.com/ServeurpersoCom/acestep.cpp.git
+  ACESTEP_CPP_REPO: https://github.com/audiohacking/acestep.cpp.git
 
 jobs:
   # ─────────────────────────────────────────────
@@ -76,10 +76,14 @@ jobs:
           retention-days: 7
 
   # ─────────────────────────────────────────────
-  # 3. Build acestep.cpp with hardware detection
+  # 3. Test build.sh (the deployment build script)
+  #    Validates that build.sh correctly clones
+  #    acestep.cpp, compiles it, and installs the
+  #    binaries to bin/ — exactly as it will run
+  #    on the end user's machine at first launch.
   # ─────────────────────────────────────────────
-  build-acestep-cpp:
-    name: Build acestep.cpp (${{ matrix.label }})
+  test-build-script:
+    name: Test build.sh (${{ matrix.label }})
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -97,117 +101,52 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ── System dependencies ─────────────────────────────────────────────
+      # ── Install build prerequisites (same as a user would need) ──────────
       - name: Install build tools (Linux)
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y cmake ninja-build libssl-dev pkg-config libopenblas-dev
+          sudo apt-get install -y cmake libssl-dev pkg-config
 
       - name: Install build tools (macOS)
         if: matrix.os == 'macos'
-        run: brew install cmake ninja
+        run: brew install cmake
 
-      # ── Clone acestep.cpp with submodules ────────────────────────────────
-      - name: Clone acestep.cpp
-        run: |
-          git clone --depth 1 ${{ env.ACESTEP_CPP_REPO }} acestep.cpp
-          cd acestep.cpp
-          git submodule update --init --recursive --depth 1
-
-      # ── Detect hardware and set cmake flags ──────────────────────────────
-      # Follows the detection approach documented in the acestep.cpp README:
-      #   CUDA (NVIDIA):  -DGGML_CUDA=ON
-      #   ROCm/HIP (AMD): -DGGML_HIP=ON
-      #   Vulkan:         -DGGML_VULKAN=ON
-      #   OpenBLAS (CPU): -DGGML_BLAS=ON
-      #   macOS:          Metal + Accelerate BLAS auto-detected by cmake
-      - name: Detect hardware and set cmake flags
-        id: detect
-        shell: bash
-        run: |
-          FLAGS=""
-          if [[ "$(uname)" == "Darwin" ]]; then
-            echo "Platform: macOS — Metal and Accelerate BLAS auto-detected by cmake"
-          else
-            # CUDA (NVIDIA)
-            if command -v nvcc &>/dev/null || [ -d /usr/local/cuda ] || [ -d /usr/cuda ]; then
-              FLAGS="$FLAGS -DGGML_CUDA=ON"
-              echo "Detected: CUDA"
-            fi
-            # ROCm/HIP (AMD)
-            if command -v hipcc &>/dev/null || [ -d /opt/rocm ]; then
-              FLAGS="$FLAGS -DGGML_HIP=ON"
-              echo "Detected: ROCm/HIP"
-            fi
-            # Vulkan
-            if pkg-config --exists vulkan 2>/dev/null; then
-              FLAGS="$FLAGS -DGGML_VULKAN=ON"
-              echo "Detected: Vulkan"
-            fi
-            # OpenBLAS (recommended for CPU-only machines)
-            if pkg-config --exists openblas 2>/dev/null; then
-              FLAGS="$FLAGS -DGGML_BLAS=ON"
-              echo "Detected: OpenBLAS"
-            fi
-            [ -z "$FLAGS" ] && echo "No accelerator detected — CPU-only build"
-          fi
-          echo "flags=$FLAGS" >> "$GITHUB_OUTPUT"
-          echo "cmake flags: $FLAGS"
-
-      # ── Build ────────────────────────────────────────────────────────────
-      - name: Cache acestep.cpp build artifacts
+      # ── Cache the acestep.cpp build directory ────────────────────────────
+      - name: Cache acestep.cpp build
         uses: actions/cache@v4
         with:
-          path: acestep.cpp/build
-          key: acestep-ci-${{ matrix.label }}-${{ hashFiles('acestep.cpp/CMakeLists.txt') }}
-          restore-keys: acestep-ci-${{ matrix.label }}-
+          path: |
+            acestep.cpp
+            bin
+          key: build-script-${{ matrix.label }}-${{ hashFiles('build.sh') }}-${{ env.ACESTEP_CPP_REPO }}
+          restore-keys: build-script-${{ matrix.label }}-
 
-      - name: Build acestep.cpp
-        run: |
-          cmake -S acestep.cpp -B acestep.cpp/build \
-            -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            ${{ steps.detect.outputs.flags }}
-          cmake --build acestep.cpp/build --parallel
+      # ── Run the real deployment build script (CPU-only on CI runners) ────
+      - name: Run build.sh
+        run: bash build.sh --cpu
 
-      # ── Verify and collect binaries ──────────────────────────────────────
-      - name: Verify binaries
+      # ── Verify expected binaries were installed to bin/ ──────────────────
+      - name: Verify installed binaries
         shell: bash
         run: |
           ALL_OK=1
           for bin in ace-qwen3 dit-vae neural-codec; do
-            BIN_PATH=$(find acestep.cpp/build -name "$bin" -type f 2>/dev/null | head -1)
-            if [ -f "$BIN_PATH" ]; then
-              echo "✅ $bin → $BIN_PATH"
+            if [ -x "bin/$bin" ]; then
+              echo "✅ bin/$bin"
             else
-              echo "⚠️  $bin not found in build tree"
+              echo "⚠️  bin/$bin not found or not executable"
               ALL_OK=0
             fi
           done
-          if [ "$ALL_OK" = "1" ]; then
-            echo "All binaries built successfully"
-          else
-            echo "One or more binaries missing — check the build output above"
-            exit 1
-          fi
+          [ "$ALL_OK" = "1" ] || { echo "One or more binaries missing"; exit 1; }
 
-      - name: Collect binaries
-        shell: bash
-        run: |
-          mkdir -p ci-bin
-          for bin in ace-qwen3 dit-vae neural-codec; do
-            BIN_PATH=$(find acestep.cpp/build -name "$bin" -type f 2>/dev/null | head -1)
-            if [ -f "$BIN_PATH" ]; then
-              cp "$BIN_PATH" "ci-bin/$bin"
-            fi
-          done
-          ls -lh ci-bin/
-
-      - uses: actions/upload-artifact@v4
+      - name: Upload binaries artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: acestep-cpp-${{ matrix.label }}
-          path: ci-bin/
+          name: ci-bin-${{ matrix.label }}
+          path: bin/
           if-no-files-found: warn
           retention-days: 7
+
 
