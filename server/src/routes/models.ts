@@ -231,7 +231,7 @@ router.get('/status', async (_req, res: Response) => {
     }
 
     const diskSet = new Set(onDisk);
-    const activeModel = config.acestep.model ? path.basename(config.acestep.model) : null;
+    const activeModel = config.acestep.ditModel ? path.basename(config.acestep.ditModel) : null;
     const queue = downloadQueue.map(j => ({ ...j }));
 
     res.json({
@@ -336,7 +336,7 @@ router.post('/active', authMiddleware, (req: AuthenticatedRequest, res: Response
   }
 
   // Update runtime config (takes effect on the next generation)
-  config.acestep.model = fullPath;
+  config.acestep.ditModel = fullPath;
   console.log(`[Models] Active model changed to: ${fullPath}`);
 
   res.json({ message: 'Active model updated', filename, path: fullPath });

@@ -1,17 +1,17 @@
 /**
  * acestep.ts — Music generation service
  *
- * Primary mode:  spawn `acestep-generate` binary directly via child_process
- *                (set ACESTEP_BIN in .env)
+ * Primary mode:  spawn `ace-qwen3` (LLM) + `dit-vae` (synthesis) binaries directly
+ *                (auto-detected from bin/ or set ACE_QWEN3_BIN / DIT_VAE_BIN in .env)
  *
  * Fallback mode: HTTP calls to a running acestep-cpp server
- *                (set ACESTEP_API_URL in .env when ACESTEP_BIN is not set)
+ *                (set ACESTEP_API_URL in .env when spawn mode binaries are not found)
  */
 
 import { spawn } from 'child_process';
 import { writeFile, mkdir, readFile } from 'fs/promises';
-import { execSync, execFileSync } from 'child_process';
-import { existsSync } from 'fs';
+import { execFileSync } from 'child_process';
+import { existsSync, readdirSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { config } from '../config/index.js';
@@ -131,7 +131,8 @@ let isProcessingQueue = false;
 // ---------------------------------------------------------------------------
 
 function useSpawnMode(): boolean {
-  return Boolean(config.acestep.bin);
+  // Spawn mode requires both ace-qwen3 (LLM) and dit-vae (synthesis) binaries
+  return Boolean(config.acestep.lmBin && config.acestep.ditVaeBin);
 }
 
 // ---------------------------------------------------------------------------
@@ -140,8 +141,8 @@ function useSpawnMode(): boolean {
 
 export async function checkSpaceHealth(): Promise<boolean> {
   if (useSpawnMode()) {
-    // Spawn mode: check the binary exists and is executable
-    return existsSync(config.acestep.bin!);
+    // Spawn mode: check both binaries exist and are accessible
+    return existsSync(config.acestep.lmBin!) && existsSync(config.acestep.ditVaeBin!);
   }
   // HTTP mode: ping the server
   try {
@@ -177,101 +178,45 @@ function resolveAudioPath(audioUrl: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Build CLI argument list for acestep-generate (no shell — safe)
+// Spawn mode: run these step.cpp binaries in a two-step pipeline
+//   Step 1: ace-qwen3  — LLM generates lyrics + audio codes from caption
+//   Step 2: dit-vae    — DiT + VAE synthesises stereo 48 kHz WAV
+//
+// The binaries communicate via a JSON request file placed in a per-job
+// temporary directory:
+//   <tmpDir>/request.json  → ace-qwen3 → <tmpDir>/request0.json
+//   <tmpDir>/request0.json → dit-vae   → <tmpDir>/request00.wav
 // ---------------------------------------------------------------------------
 
-function buildSpawnArgs(params: GenerationParams, outputPrefix: string): string[] {
-  const caption = params.style || 'pop music';
-  const prompt = params.customMode ? caption : (params.songDescription || caption);
-  const lyrics = params.instrumental ? '' : (params.lyrics || '');
-  const isThinking = params.thinking ?? false;
-  const isEnhance = params.enhance ?? false;
-  const useCot = isEnhance || isThinking;
-  const taskType = params.taskType === 'audio2audio' ? 'cover' : (params.taskType || 'text2music');
+/** Run a binary and return its captured stdout/stderr. Throws on non-zero exit. */
+async function runBinary(
+  bin: string,
+  args: string[],
+  label: string,
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(bin, args, {
+      shell: false,
+      env:   { ...process.env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
 
-  const args: string[] = [];
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+    proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
 
-  // Model
-  if (config.acestep.model) {
-    args.push('--model', config.acestep.model);
-  }
-
-  // Core
-  args.push('--prompt', prompt);
-  if (lyrics) args.push('--lyrics', lyrics);
-  if (params.instrumental) args.push('--instrumental');
-
-  // Music parameters
-  if (params.duration && params.duration > 0)  args.push('--duration',        String(params.duration));
-  if (params.bpm && params.bpm > 0)            args.push('--bpm',             String(params.bpm));
-  if (params.keyScale)                         args.push('--key-scale',       params.keyScale);
-  if (params.timeSignature)                    args.push('--time-signature',  params.timeSignature);
-  if (params.vocalLanguage)                    args.push('--vocal-language',  params.vocalLanguage);
-
-  // Generation settings
-  args.push('--infer-steps',     String(params.inferenceSteps ?? 8));
-  args.push('--guidance-scale',  String(params.guidanceScale  ?? 7.0));
-  args.push('--batch-size',      String(Math.min(Math.max(params.batchSize ?? 1, 1), 16)));
-  args.push('--audio-format',    params.audioFormat || 'mp3');
-  args.push('--shift',           String(params.shift ?? 3.0));
-  args.push('--infer-method',    params.inferMethod || 'ode');
-  args.push('--task-type',       taskType);
-
-  if (params.randomSeed !== false) {
-    args.push('--seed', '-1');
-  } else if (params.seed !== undefined) {
-    args.push('--seed', String(params.seed));
-  }
-
-  // LM
-  args.push('--lm-temperature', String(params.lmTemperature ?? 0.85));
-  args.push('--lm-cfg-scale',   String(params.lmCfgScale   ?? 2.0));
-  if ((params.lmTopK ?? 0) > 0) args.push('--lm-top-k', String(params.lmTopK));
-  args.push('--lm-top-p',       String(params.lmTopP ?? 0.9));
-  if (params.lmNegativePrompt)  args.push('--lm-negative-prompt', params.lmNegativePrompt);
-
-  // CoT
-  if (isThinking)     args.push('--thinking');
-  if (useCot) {
-    if (params.useCotMetas    !== false) args.push('--use-cot-metas');
-    if (params.useCotCaption  !== false) args.push('--use-cot-caption');
-    if (params.useCotLanguage !== false) args.push('--use-cot-language');
-  }
-
-  // Expert
-  if (params.useAdg)                                          args.push('--use-adg');
-  if ((params.cfgIntervalStart ?? 0) > 0)                    args.push('--cfg-interval-start', String(params.cfgIntervalStart));
-  if ((params.cfgIntervalEnd ?? 1) < 1)                      args.push('--cfg-interval-end',   String(params.cfgIntervalEnd));
-  if (params.audioCoverStrength !== undefined && taskType !== 'text2music')
-                                                              args.push('--audio-cover-strength', String(params.audioCoverStrength));
-  if (params.repaintingStart && params.repaintingStart > 0)  args.push('--repainting-start', String(params.repaintingStart));
-  if (params.repaintingEnd   && params.repaintingEnd   > 0)  args.push('--repainting-end',   String(params.repaintingEnd));
-  if (params.audioCodes)                                      args.push('--audio-codes', params.audioCodes);
-  if (params.autogen)                                         args.push('--autogen');
-
-  // Audio inputs (resolved to absolute local paths)
-  if (params.referenceAudioUrl) args.push('--reference-audio', resolveAudioPath(params.referenceAudioUrl));
-  if (params.sourceAudioUrl)    args.push('--src-audio',       resolveAudioPath(params.sourceAudioUrl));
-
-  // LoRA — state lives in lora.ts but is injected here at generation time
-  if (loraState.loaded && loraState.active && loraState.path) {
-    args.push('--lora',       loraState.path);
-    args.push('--lora-scale', String(loraState.scale));
-  }
-
-  // Model variant override
-  if (params.ditModel) args.push('--dit-model', params.ditModel);
-
-  // Output
-  args.push('--output-prefix', outputPrefix);
-  args.push('--json');  // print result JSON on stdout
-
-  return args;
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        const msg = (stderr || stdout || `exit code ${code}`).slice(0, 500);
+        reject(new Error(`${label} failed: ${msg}`));
+      }
+    });
+    proc.on('error', (err) => reject(new Error(`${label} process error: ${err.message}`)));
+  });
 }
-
-// ---------------------------------------------------------------------------
-// Spawn mode: run acestep-generate as a child process
-// ---------------------------------------------------------------------------
 
 async function runViaSpawn(
   jobId: string,
@@ -280,84 +225,170 @@ async function runViaSpawn(
 ): Promise<void> {
   await mkdir(AUDIO_DIR, { recursive: true });
 
-  const outputPrefix = path.join(AUDIO_DIR, jobId);
-  const args = buildSpawnArgs(params, outputPrefix);
-  const bin = config.acestep.bin!;
+  const tmpDir = path.join(AUDIO_DIR, `_tmp_${jobId}`);
+  await mkdir(tmpDir, { recursive: true });
 
-  console.log(`[Spawn] Job ${jobId}: ${bin} ${args.slice(0, 6).join(' ')} ...`);
+  try {
+    // ── Build request.json ─────────────────────────────────────────────────
+    // ace-qwen3 reads generation parameters from a JSON file. Only `caption`
+    // is strictly required; all other fields default to sensible values.
+    const caption = params.style || 'pop music';
+    const prompt  = params.customMode ? caption : (params.songDescription || caption);
+    // Instrumental: pass the special "[Instrumental]" lyrics string so the LLM
+    // skips lyrics generation (as documented in the acestep.cpp README).
+    const lyrics  = params.instrumental ? '[Instrumental]' : (params.lyrics || '');
 
-  const result = await new Promise<{ stdout: string; stderr: string; code: number }>(
-    (resolve) => {
-      const proc = spawn(bin, args, {
-        shell: false,                // ← no shell, safe from injection
-        env: { ...process.env },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
+    const requestJson: Record<string, unknown> = {
+      caption: prompt,
+      lyrics,
+      vocal_language:    params.vocalLanguage    || 'unknown',
+      seed:              params.randomSeed !== false ? -1 : (params.seed ?? -1),
+      lm_temperature:    params.lmTemperature    ?? 0.85,
+      lm_cfg_scale:      params.lmCfgScale       ?? 2.0,
+      lm_top_p:          params.lmTopP           ?? 0.9,
+      lm_top_k:          params.lmTopK           ?? 0,
+      lm_negative_prompt: params.lmNegativePrompt || '',
+      inference_steps:   params.inferenceSteps   ?? 8,
+      guidance_scale:    params.guidanceScale     ?? 0.0,
+      shift:             params.shift             ?? 3.0,
+    };
+    // Optional metadata (0 / empty = let the LLM fill it)
+    if (params.bpm && params.bpm > 0)     requestJson.bpm           = params.bpm;
+    if (params.duration && params.duration > 0) requestJson.duration = params.duration;
+    if (params.keyScale)                  requestJson.keyscale      = params.keyScale;
+    if (params.timeSignature)             requestJson.timesignature = params.timeSignature;
+    // Passthrough: skip the LLM when audio codes are already provided
+    if (params.audioCodes)                requestJson.audio_codes   = params.audioCodes;
 
-      let stdout = '';
-      let stderr = '';
+    const requestPath = path.join(tmpDir, 'request.json');
+    await writeFile(requestPath, JSON.stringify(requestJson, null, 2));
 
-      proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-      proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+    // ── Step 1: ace-qwen3 — LLM (lyrics + audio codes) ────────────────────
+    let enrichedPaths: string[] = [];
 
-      proc.on('close', (code) => resolve({ stdout, stderr, code: code ?? 1 }));
-      proc.on('error', (err) => {
-        console.error(`[Spawn] Process error: ${err.message}`);
-        resolve({ stdout, stderr, code: 1 });
-      });
-    },
-  );
+    if (!params.audioCodes) {
+      job.stage = 'LLM: generating lyrics and audio codes…';
 
-  if (result.code !== 0) {
-    const msg = result.stderr || result.stdout || `exit code ${result.code}`;
-    throw new Error(`acestep-generate failed: ${msg.slice(0, 500)}`);
-  }
+      const lmBin   = config.acestep.lmBin!;
+      const lmModel = config.acestep.lmModel;
+      if (!lmModel) throw new Error('LM model not found — run models.sh first');
 
-  // Parse JSON from stdout (last JSON object line wins)
-  let parsed: { audio_paths?: string[]; bpm?: number; key_scale?: string; time_signature?: string; duration?: number } = {};
-  for (const line of result.stdout.split('\n').reverse()) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('{')) {
-      try { parsed = JSON.parse(trimmed); break; } catch { /* next */ }
+      const lmArgs: string[] = ['--request', requestPath, '--model', lmModel];
+
+      const batchSize = Math.min(Math.max(params.batchSize ?? 1, 1), 8);
+      if (batchSize > 1) lmArgs.push('--batch', String(batchSize));
+
+      console.log(`[Spawn] Job ${jobId}: ace-qwen3 ${lmArgs.slice(0, 6).join(' ')} …`);
+      await runBinary(lmBin, lmArgs, 'ace-qwen3');
+
+      // Collect enriched JSON files produced by ace-qwen3:
+      // request.json → request0.json [, request1.json, …] (placed alongside request.json)
+      try {
+        enrichedPaths = readdirSync(tmpDir)
+          .filter(f => /^request\d+\.json$/.test(f))
+          .sort()
+          .map(f => path.join(tmpDir, f));
+      } catch { /* ignore */ }
+
+      if (enrichedPaths.length === 0) {
+        throw new Error('ace-qwen3 produced no enriched request files');
+      }
+    } else {
+      // Passthrough: use the original request.json directly (audio_codes present)
+      enrichedPaths = [requestPath];
     }
-  }
 
-  // Collect audio files — from JSON or by scanning with the job prefix
-  let audioPaths: string[] = parsed.audio_paths ?? [];
-  if (audioPaths.length === 0) {
-    const { readdirSync } = await import('fs');
-    const exts = new Set(['.mp3', '.flac', '.wav', '.ogg']);
+    // ── Step 2: dit-vae — DiT + VAE (audio synthesis) ──────────────────────
+    job.stage = 'DiT+VAE: synthesising audio…';
+
+    const ditVaeBin          = config.acestep.ditVaeBin!;
+    const textEncoderModel   = config.acestep.textEncoderModel;
+    const ditModel           = params.ditModel ? params.ditModel : config.acestep.ditModel;
+    const vaeModel           = config.acestep.vaeModel;
+
+    if (!textEncoderModel) throw new Error('Text-encoder model not found — run models.sh first');
+    if (!ditModel)         throw new Error('DiT model not found — run models.sh first');
+    if (!vaeModel)         throw new Error('VAE model not found — run models.sh first');
+
+    const ditArgs: string[] = [
+      '--request',      ...enrichedPaths,
+      '--text-encoder', textEncoderModel,
+      '--dit',          ditModel,
+      '--vae',          vaeModel,
+    ];
+
+    const batchSize = Math.min(Math.max(params.batchSize ?? 1, 1), 8);
+    if (batchSize > 1) ditArgs.push('--batch', String(batchSize));
+
+    if (params.referenceAudioUrl)  ditArgs.push('--reference-audio', resolveAudioPath(params.referenceAudioUrl));
+    if (params.sourceAudioUrl)     ditArgs.push('--src-audio',       resolveAudioPath(params.sourceAudioUrl));
+    if (params.repaintingStart && params.repaintingStart > 0)
+                                   ditArgs.push('--repainting-start', String(params.repaintingStart));
+    if (params.repaintingEnd && params.repaintingEnd > 0)
+                                   ditArgs.push('--repainting-end',   String(params.repaintingEnd));
+
+    console.log(`[Spawn] Job ${jobId}: dit-vae ${ditArgs.slice(0, 6).join(' ')} …`);
+    await runBinary(ditVaeBin, ditArgs, 'dit-vae');
+
+    // ── Collect generated WAV files ─────────────────────────────────────────
+    // dit-vae places output WAVs alongside each enriched JSON:
+    //   request0.json → request00.wav, request01.wav, …
+    //   request1.json → request10.wav, request11.wav, …
+    const { copyFile, rm } = await import('fs/promises');
+    let rawAudioPaths: string[] = [];
     try {
-      audioPaths = readdirSync(AUDIO_DIR)
-        .filter(f => f.startsWith(path.basename(jobId)) && exts.has(path.extname(f).toLowerCase()))
-        .map(f => path.join(AUDIO_DIR, f));
+      rawAudioPaths = readdirSync(tmpDir)
+        .filter(f => /^request\d+\.wav$/.test(f))
+        .sort()
+        .map(f => path.join(tmpDir, f));
     } catch { /* ignore */ }
+
+    if (rawAudioPaths.length === 0) {
+      throw new Error('dit-vae produced no audio files');
+    }
+
+    // Move WAVs to AUDIO_DIR with a stable, job-scoped name
+    const audioPaths: string[] = [];
+    for (let i = 0; i < rawAudioPaths.length; i++) {
+      const dest = path.join(AUDIO_DIR, `${jobId}_${i}.wav`);
+      await copyFile(rawAudioPaths[i], dest);
+      audioPaths.push(dest);
+    }
+
+    // Read metadata from the first enriched JSON (bpm, key, duration, etc.)
+    let enrichedMeta: { bpm?: number; keyscale?: string; timesignature?: string; duration?: number } = {};
+    try {
+      const text = await (await import('fs/promises')).readFile(enrichedPaths[0], 'utf-8');
+      enrichedMeta = JSON.parse(text);
+    } catch { /* optional */ }
+
+    const audioUrls   = audioPaths.map(p => `/audio/${path.relative(AUDIO_DIR, p)}`);
+    const actualDur   = getAudioDuration(audioPaths[0]);
+    const finalDur    = actualDur > 0 ? actualDur : (enrichedMeta.duration ?? params.duration ?? 0);
+
+    job.status = 'succeeded';
+    job.result = {
+      audioUrls,
+      duration:      finalDur,
+      bpm:           enrichedMeta.bpm           || params.bpm,
+      keyScale:      enrichedMeta.keyscale      || params.keyScale,
+      timeSignature: enrichedMeta.timesignature || params.timeSignature,
+      status: 'succeeded',
+    };
+    job.rawResponse = enrichedMeta;
+    console.log(`[Spawn] Job ${jobId}: completed with ${audioUrls.length} audio file(s)`);
+
+    // Clean up tmp directory
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => { /* best-effort */ });
+
+  } catch (err) {
+    // Best-effort cleanup on failure
+    try {
+      const { rm } = await import('fs/promises');
+      await rm(tmpDir, { recursive: true, force: true });
+    } catch { /* ignore */ }
+    throw err;
   }
-
-  if (audioPaths.length === 0) {
-    throw new Error('acestep-generate produced no audio files');
-  }
-
-  const audioUrls = audioPaths.map(p => {
-    // If already inside AUDIO_DIR, expose as /audio/<filename>
-    const rel = path.relative(AUDIO_DIR, p);
-    return rel.startsWith('..') ? p : `/audio/${rel}`;
-  });
-
-  const actualDuration = getAudioDuration(audioPaths[0]);
-  const finalDuration = actualDuration > 0 ? actualDuration : (parsed.duration || params.duration || 0);
-
-  job.status = 'succeeded';
-  job.result = {
-    audioUrls,
-    duration: finalDuration,
-    bpm: parsed.bpm || params.bpm,
-    keyScale: parsed.key_scale || params.keyScale,
-    timeSignature: parsed.time_signature || params.timeSignature,
-    status: 'succeeded',
-  };
-  job.rawResponse = parsed;
-  console.log(`[Spawn] Job ${jobId}: completed with ${audioUrls.length} audio file(s)`);
 }
 
 // ---------------------------------------------------------------------------
@@ -635,7 +666,13 @@ export function getJobRawResponse(jobId: string): unknown | null {
 
 export async function discoverEndpoints(): Promise<unknown> {
   const mode = useSpawnMode() ? 'spawn' : 'http';
-  return { provider: 'acestep-cpp', mode, bin: config.acestep.bin, apiUrl: config.acestep.apiUrl };
+  return {
+    provider: 'acestep-cpp',
+    mode,
+    lmBin:    config.acestep.lmBin,
+    ditVaeBin: config.acestep.ditVaeBin,
+    apiUrl:   config.acestep.apiUrl,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -596,7 +596,7 @@ router.get('/endpoints', authMiddleware, async (_req: AuthenticatedRequest, res:
 
 router.get('/models', async (_req, res: Response) => {
   // In HTTP mode: ask the server; in spawn mode: return current model from config
-  if (!config.acestep.bin) {
+  if (!(config.acestep.lmBin && config.acestep.ditVaeBin)) {
     try {
       const apiRes = await fetch(`${config.acestep.apiUrl}/v1/models`);
       if (apiRes.ok) {
@@ -609,14 +609,14 @@ router.get('/models', async (_req, res: Response) => {
     } catch { /* fall through to defaults */ }
   }
 
-  // Spawn mode (or HTTP server unreachable): report the configured model
-  const activeModel = config.acestep.model
-    ? path.basename(config.acestep.model, path.extname(config.acestep.model))
+  // Spawn mode (or HTTP server unreachable): report the configured DiT model
+  const activeModel = config.acestep.ditModel
+    ? path.basename(config.acestep.ditModel, path.extname(config.acestep.ditModel))
     : 'acestep-v15-turbo';
 
   res.json({
     models: [
-      { name: activeModel,         is_active: true,  is_preloaded: Boolean(config.acestep.model) },
+      { name: activeModel,         is_active: true,  is_preloaded: Boolean(config.acestep.ditModel) },
       { name: 'acestep-v15-turbo', is_active: activeModel === 'acestep-v15-turbo', is_preloaded: false },
       { name: 'acestep-v15-base',  is_active: false, is_preloaded: false },
       { name: 'acestep-v15-sft',   is_active: false, is_preloaded: false },
@@ -646,8 +646,14 @@ router.get('/random-description', authMiddleware, async (_req: AuthenticatedRequ
 router.get('/health', async (_req, res: Response) => {
   try {
     const healthy = await checkSpaceHealth();
-    const mode = config.acestep.bin ? 'spawn' : 'http';
-    res.json({ healthy, mode, bin: config.acestep.bin || null, aceStepUrl: config.acestep.apiUrl });
+    const mode = (config.acestep.lmBin && config.acestep.ditVaeBin) ? 'spawn' : 'http';
+    res.json({
+      healthy,
+      mode,
+      lmBin:     config.acestep.lmBin     || null,
+      ditVaeBin: config.acestep.ditVaeBin || null,
+      aceStepUrl: config.acestep.apiUrl,
+    });
   } catch (error) {
     res.json({ healthy: false, error: (error as Error).message });
   }
@@ -655,7 +661,7 @@ router.get('/health', async (_req, res: Response) => {
 
 router.get('/limits', async (_req, res: Response) => {
   // In HTTP mode, ask the server; in spawn mode, return safe defaults
-  if (!config.acestep.bin) {
+  if (!(config.acestep.lmBin && config.acestep.ditVaeBin)) {
     try {
       const response = await fetch(`${config.acestep.apiUrl}/v1/limits`);
       if (response.ok) {
@@ -701,40 +707,57 @@ router.post('/format', authMiddleware, async (req: AuthenticatedRequest, res: Re
     }
 
     // ── Spawn mode ────────────────────────────────────────────────────────
-    if (config.acestep.bin) {
-      const args: string[] = ['--mode', 'format', '--prompt', caption, '--json'];
-      if (lyrics)                args.push('--lyrics',      lyrics);
-      if (bpm && bpm > 0)        args.push('--bpm',         String(bpm));
-      if (duration && duration > 0) args.push('--duration', String(duration));
-      if (keyScale)              args.push('--key-scale',   keyScale);
-      if (timeSignature)         args.push('--time-signature', timeSignature);
-      if (temperature != null)   args.push('--temperature', String(temperature ?? 0.85));
-      if (config.acestep.model)  args.push('--model',       config.acestep.model);
+    // ace-qwen3 is used for format/enhance — pass a request JSON with autogen enabled
+    if (config.acestep.lmBin && config.acestep.lmModel) {
+      const { writeFile: wf, mkdir: mkd, rm: rmf } = await import('fs/promises');
+      const { tmpdir } = await import('os');
+      const tmpD = path.join(tmpdir(), `acestep_fmt_${Date.now()}`);
+      await mkd(tmpD, { recursive: true });
+      const reqPath = path.join(tmpD, 'request.json');
+      const reqJson: Record<string, unknown> = {
+        caption,
+        lyrics:       lyrics        || '',
+        lm_temperature: temperature ?? 0.85,
+      };
+      if (bpm && bpm > 0)        reqJson.bpm           = bpm;
+      if (duration && duration > 0) reqJson.duration   = duration;
+      if (keyScale)              reqJson.keyscale       = keyScale;
+      if (timeSignature)         reqJson.timesignature  = timeSignature;
+      await wf(reqPath, JSON.stringify(reqJson, null, 2));
 
+      const args: string[] = ['--request', reqPath, '--model', config.acestep.lmModel];
       const { spawn } = await import('child_process');
-      const result = await new Promise<{ stdout: string; code: number }>((resolve) => {
-        const proc = spawn(config.acestep.bin!, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+      const result = await new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
+        const proc = spawn(config.acestep.lmBin!, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
         let stdout = ''; let stderr = '';
         proc.stdout.on('data', (c: Buffer) => { stdout += c.toString(); });
         proc.stderr.on('data', (c: Buffer) => { stderr += c.toString(); });
-        proc.on('close', (code) => resolve({ stdout: stdout || stderr, code: code ?? 1 }));
-        proc.on('error', (e) => resolve({ stdout: e.message, code: 1 }));
+        proc.on('close', (code) => resolve({ stdout, stderr, code: code ?? 1 }));
+        proc.on('error', (e) => resolve({ stdout: '', stderr: e.message, code: 1 }));
       });
 
-      if (result.code !== 0) {
-        res.status(500).json({ success: false, error: result.stdout.slice(0, 500) });
+      // Read the enriched JSON output (request0.json placed alongside request.json)
+      let enriched: Record<string, unknown> = {};
+      try {
+        const { readFile } = await import('fs/promises');
+        const text = await readFile(path.join(tmpD, 'request0.json'), 'utf-8');
+        enriched = JSON.parse(text);
+      } catch { /* best-effort */ }
+      await rmf(tmpD, { recursive: true, force: true }).catch(() => { /* ignore */ });
+
+      if (result.code !== 0 && !enriched.caption) {
+        res.status(500).json({ success: false, error: (result.stderr || result.stdout).slice(0, 500) });
         return;
       }
-
-      let parsed: any = {};
-      for (const line of result.stdout.split('\n').reverse()) {
-        if (line.trim().startsWith('{')) {
-          try { parsed = JSON.parse(line.trim()); break; } catch { /* next */ }
-        }
-      }
-      const d = parsed.data ?? parsed;
-      res.json({ caption: d.caption, lyrics: d.lyrics, bpm: d.bpm, duration: d.duration,
-                 key_scale: d.key_scale, time_signature: d.time_signature, vocal_language: d.vocal_language });
+      res.json({
+        caption:        enriched.caption        ?? caption,
+        lyrics:         enriched.lyrics         ?? lyrics,
+        bpm:            enriched.bpm,
+        duration:       enriched.duration,
+        key_scale:      enriched.keyscale,
+        time_signature: enriched.timesignature,
+        vocal_language: enriched.vocal_language,
+      });
       return;
     }
 

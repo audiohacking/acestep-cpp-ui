@@ -14,37 +14,41 @@ const __dirname  = path.dirname(__filename);
 //   release: <bundle>/server/dist/ → ../.. → <bundle>/
 const APP_ROOT = path.resolve(__dirname, '../..');
 
-// ── Auto-detect binary ──────────────────────────────────────────────────────
-function resolveBin(): string {
-  if (process.env.ACESTEP_BIN) return process.env.ACESTEP_BIN;
+// ── Binary resolution ───────────────────────────────────────────────────────
 
-  // Bundled binary (release layout: <app>/bin/acestep-generate)
-  const bundledUnix = path.join(APP_ROOT, 'bin', 'acestep-generate');
-  if (existsSync(bundledUnix)) return bundledUnix;
-
-  const bundledWin  = path.join(APP_ROOT, 'bin', 'acestep-generate.exe');
-  if (existsSync(bundledWin))  return bundledWin;
-
-  // Not found — server will report unhealthy; user must set ACESTEP_BIN
+/** Resolves the ace-qwen3 LLM binary path (step 1 of the pipeline). */
+function resolveLmBin(): string {
+  if (process.env.ACE_QWEN3_BIN) return process.env.ACE_QWEN3_BIN;
+  for (const name of ['ace-qwen3', 'ace-qwen3.exe']) {
+    const p = path.join(APP_ROOT, 'bin', name);
+    if (existsSync(p)) return p;
+  }
   return '';
 }
 
-// ── Auto-detect models directory ────────────────────────────────────────────
+/** Resolves the dit-vae binary path (step 2 of the pipeline). */
+function resolveDitVaeBin(): string {
+  if (process.env.DIT_VAE_BIN) return process.env.DIT_VAE_BIN;
+  for (const name of ['dit-vae', 'dit-vae.exe']) {
+    const p = path.join(APP_ROOT, 'bin', name);
+    if (existsSync(p)) return p;
+  }
+  return '';
+}
+
+// ── Model resolution ─────────────────────────────────────────────────────────
+
+/** Resolves the models directory. */
 function resolveModelsDir(): string {
   if (process.env.MODELS_DIR) return process.env.MODELS_DIR;
-  // Default: <app>/models (works for both dev and release layout)
   return path.join(APP_ROOT, 'models');
 }
 
-// ── Auto-detect active model ─────────────────────────────────────────────────
-// Scans modelsDir for the best available DiT model in preference order.
-// Users can always override by setting ACESTEP_MODEL.
-function resolveModel(modelsDir: string): string {
+/** Resolves the DiT model (acestep-v15-turbo-*.gguf). */
+function resolveDitModel(modelsDir: string): string {
   if (process.env.ACESTEP_MODEL) return process.env.ACESTEP_MODEL;
-
   if (!existsSync(modelsDir)) return '';
 
-  // Ordered preference list — Q8_0 turbo first, then lower quants, then variants
   const preference = [
     'acestep-v15-turbo-Q8_0.gguf',
     'acestep-v15-turbo-Q6_K.gguf',
@@ -57,27 +61,111 @@ function resolveModel(modelsDir: string): string {
     if (existsSync(p)) return p;
   }
 
-  // Any turbo variant, then any sft/base, then any .gguf
   try {
     const files = readdirSync(modelsDir).filter(f => f.endsWith('.gguf') && !f.endsWith('.part'));
     const turbo = files.find(f => f.startsWith('acestep-v15-turbo'));
     if (turbo) return path.join(modelsDir, turbo);
     const sft   = files.find(f => f.startsWith('acestep-v15'));
     if (sft)   return path.join(modelsDir, sft);
-    if (files[0]) return path.join(modelsDir, files[0]);
   } catch { /* ignore read errors */ }
 
   return '';
 }
 
-const modelsDir = resolveModelsDir();
-const resolvedBin = resolveBin();
-const resolvedModel = resolveModel(modelsDir);
+/** Resolves the causal LM model (acestep-5Hz-lm-*.gguf). */
+function resolveLmModel(modelsDir: string): string {
+  if (process.env.LM_MODEL) return process.env.LM_MODEL;
+  if (!existsSync(modelsDir)) return '';
 
-if (resolvedBin)   console.log(`[config] acestep-generate: ${resolvedBin}`);
-else               console.log('[config] acestep-generate: not found (set ACESTEP_BIN)');
-if (resolvedModel) console.log(`[config] active model:     ${resolvedModel}`);
-else               console.log('[config] active model:     none (run models.sh or use Models tab)');
+  // Prefer 4B Q8_0, then smaller quantisations, then smaller LM sizes
+  const preference = [
+    'acestep-5Hz-lm-4B-Q8_0.gguf',
+    'acestep-5Hz-lm-4B-Q6_K.gguf',
+    'acestep-5Hz-lm-4B-Q5_K_M.gguf',
+    'acestep-5Hz-lm-4B-BF16.gguf',
+    'acestep-5Hz-lm-1.7B-Q8_0.gguf',
+    'acestep-5Hz-lm-1.7B-BF16.gguf',
+    'acestep-5Hz-lm-0.6B-Q8_0.gguf',
+    'acestep-5Hz-lm-0.6B-BF16.gguf',
+  ];
+  for (const name of preference) {
+    const p = path.join(modelsDir, name);
+    if (existsSync(p)) return p;
+  }
+
+  try {
+    const files = readdirSync(modelsDir).filter(f => f.endsWith('.gguf') && !f.endsWith('.part'));
+    const lm = files.find(f => f.startsWith('acestep-5Hz-lm-'));
+    if (lm) return path.join(modelsDir, lm);
+  } catch { /* ignore */ }
+
+  return '';
+}
+
+/** Resolves the text-encoder model (Qwen3-Embedding-*.gguf). */
+function resolveTextEncoderModel(modelsDir: string): string {
+  if (process.env.TEXT_ENCODER_MODEL) return process.env.TEXT_ENCODER_MODEL;
+  if (!existsSync(modelsDir)) return '';
+
+  for (const name of [
+    'Qwen3-Embedding-0.6B-Q8_0.gguf',
+    'Qwen3-Embedding-0.6B-BF16.gguf',
+  ]) {
+    const p = path.join(modelsDir, name);
+    if (existsSync(p)) return p;
+  }
+
+  try {
+    const files = readdirSync(modelsDir).filter(f => f.endsWith('.gguf') && !f.endsWith('.part'));
+    const enc = files.find(f => f.startsWith('Qwen3-Embedding'));
+    if (enc) return path.join(modelsDir, enc);
+  } catch { /* ignore */ }
+
+  return '';
+}
+
+/** Resolves the VAE model (vae-BF16.gguf). */
+function resolveVaeModel(modelsDir: string): string {
+  if (process.env.VAE_MODEL) return process.env.VAE_MODEL;
+  if (!existsSync(modelsDir)) return '';
+
+  for (const name of ['vae-BF16.gguf', 'vae-Q8_0.gguf']) {
+    const p = path.join(modelsDir, name);
+    if (existsSync(p)) return p;
+  }
+
+  try {
+    const files = readdirSync(modelsDir).filter(f => f.endsWith('.gguf') && !f.endsWith('.part'));
+    const vae = files.find(f => f.startsWith('vae-'));
+    if (vae) return path.join(modelsDir, vae);
+  } catch { /* ignore */ }
+
+  return '';
+}
+
+// ── Resolve everything ───────────────────────────────────────────────────────
+
+const modelsDir          = resolveModelsDir();
+const resolvedLmBin      = resolveLmBin();
+const resolvedDitVaeBin  = resolveDitVaeBin();
+const resolvedDitModel   = resolveDitModel(modelsDir);
+const resolvedLmModel    = resolveLmModel(modelsDir);
+const resolvedTextEncoderModel = resolveTextEncoderModel(modelsDir);
+const resolvedVaeModel   = resolveVaeModel(modelsDir);
+
+// Log detected paths at startup
+if (resolvedLmBin)             console.log(`[config] ace-qwen3:      ${resolvedLmBin}`);
+else                           console.log('[config] ace-qwen3:      not found (set ACE_QWEN3_BIN)');
+if (resolvedDitVaeBin)         console.log(`[config] dit-vae:        ${resolvedDitVaeBin}`);
+else                           console.log('[config] dit-vae:        not found (set DIT_VAE_BIN)');
+if (resolvedLmModel)           console.log(`[config] LM model:       ${resolvedLmModel}`);
+else                           console.log('[config] LM model:       none (run models.sh)');
+if (resolvedTextEncoderModel)  console.log(`[config] text encoder:   ${resolvedTextEncoderModel}`);
+else                           console.log('[config] text encoder:   none (run models.sh)');
+if (resolvedDitModel)          console.log(`[config] DiT model:      ${resolvedDitModel}`);
+else                           console.log('[config] DiT model:      none (run models.sh)');
+if (resolvedVaeModel)          console.log(`[config] VAE model:      ${resolvedVaeModel}`);
+else                           console.log('[config] VAE model:      none (run models.sh)');
 
 export const config = {
   port:    parseInt(process.env.PORT || '3001', 10),
@@ -88,12 +176,18 @@ export const config = {
     path: process.env.DATABASE_PATH || path.join(APP_ROOT, 'data', 'acestep.db'),
   },
 
-  // acestep-cpp — spawn mode (preferred) or HTTP mode fallback.
-  // Both bin and model are auto-detected from the bundle layout; env vars
-  // are overrides for users who want a custom binary or model.
+  // acestep-cpp — spawn mode uses ace-qwen3 + dit-vae directly.
+  // HTTP mode fallback: calls ACESTEP_API_URL (e.g. a running acestep-cpp server).
   acestep: {
-    bin:    resolvedBin,    // mutable — POST /api/models/active can change model
-    model:  resolvedModel,  // mutable at runtime
+    // Two-binary spawn mode (acestep.cpp native pipeline)
+    lmBin:             resolvedLmBin,
+    ditVaeBin:         resolvedDitVaeBin,
+    lmModel:           resolvedLmModel,
+    textEncoderModel:  resolvedTextEncoderModel,
+    ditModel:          resolvedDitModel,
+    vaeModel:          resolvedVaeModel,
+
+    // HTTP fallback mode
     apiUrl: process.env.ACESTEP_API_URL || 'http://localhost:7860',
   },
 
@@ -117,3 +211,4 @@ export const config = {
     expiresIn: '365d',
   },
 };
+

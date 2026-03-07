@@ -18,7 +18,7 @@ const router = Router();
 
 // Helper: forward LoRA command to the HTTP server (HTTP mode only)
 async function syncHttpServer(endpoint: string, body?: Record<string, unknown>): Promise<void> {
-  if (config.acestep.bin) return; // spawn mode — nothing to forward
+  if (config.acestep.lmBin && config.acestep.ditVaeBin) return; // spawn mode — nothing to forward
   try {
     await fetch(`${config.acestep.apiUrl}/v1/lora/${endpoint}`, {
       method: 'POST',

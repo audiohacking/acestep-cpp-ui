@@ -7,6 +7,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  ACESTEP_CPP_REPO: https://github.com/ServeurpersoCom/acestep.cpp.git
+
 jobs:
   # ─────────────────────────────────────────────
   # 1. React / Vite frontend
@@ -71,3 +74,140 @@ jobs:
           name: server-dist
           path: server/dist/
           retention-days: 7
+
+  # ─────────────────────────────────────────────
+  # 3. Build acestep.cpp with hardware detection
+  # ─────────────────────────────────────────────
+  build-acestep-cpp:
+    name: Build acestep.cpp (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x64
+            runner: ubuntu-22.04
+            os: linux
+          - label: macos-arm64
+            runner: macos-14
+            os: macos
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── System dependencies ─────────────────────────────────────────────
+      - name: Install build tools (Linux)
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y cmake ninja-build libssl-dev pkg-config libopenblas-dev
+
+      - name: Install build tools (macOS)
+        if: matrix.os == 'macos'
+        run: brew install cmake ninja
+
+      # ── Clone acestep.cpp with submodules ────────────────────────────────
+      - name: Clone acestep.cpp
+        run: |
+          git clone --depth 1 ${{ env.ACESTEP_CPP_REPO }} acestep.cpp
+          cd acestep.cpp
+          git submodule update --init --recursive --depth 1
+
+      # ── Detect hardware and set cmake flags ──────────────────────────────
+      # Follows the detection approach documented in the acestep.cpp README:
+      #   CUDA (NVIDIA):  -DGGML_CUDA=ON
+      #   ROCm/HIP (AMD): -DGGML_HIP=ON
+      #   Vulkan:         -DGGML_VULKAN=ON
+      #   OpenBLAS (CPU): -DGGML_BLAS=ON
+      #   macOS:          Metal + Accelerate BLAS auto-detected by cmake
+      - name: Detect hardware and set cmake flags
+        id: detect
+        shell: bash
+        run: |
+          FLAGS=""
+          if [[ "$(uname)" == "Darwin" ]]; then
+            echo "Platform: macOS — Metal and Accelerate BLAS auto-detected by cmake"
+          else
+            # CUDA (NVIDIA)
+            if command -v nvcc &>/dev/null || [ -d /usr/local/cuda ] || [ -d /usr/cuda ]; then
+              FLAGS="$FLAGS -DGGML_CUDA=ON"
+              echo "Detected: CUDA"
+            fi
+            # ROCm/HIP (AMD)
+            if command -v hipcc &>/dev/null || [ -d /opt/rocm ]; then
+              FLAGS="$FLAGS -DGGML_HIP=ON"
+              echo "Detected: ROCm/HIP"
+            fi
+            # Vulkan
+            if pkg-config --exists vulkan 2>/dev/null; then
+              FLAGS="$FLAGS -DGGML_VULKAN=ON"
+              echo "Detected: Vulkan"
+            fi
+            # OpenBLAS (recommended for CPU-only machines)
+            if pkg-config --exists openblas 2>/dev/null; then
+              FLAGS="$FLAGS -DGGML_BLAS=ON"
+              echo "Detected: OpenBLAS"
+            fi
+            [ -z "$FLAGS" ] && echo "No accelerator detected — CPU-only build"
+          fi
+          echo "flags=$FLAGS" >> "$GITHUB_OUTPUT"
+          echo "cmake flags: $FLAGS"
+
+      # ── Build ────────────────────────────────────────────────────────────
+      - name: Cache acestep.cpp build artifacts
+        uses: actions/cache@v4
+        with:
+          path: acestep.cpp/build
+          key: acestep-ci-${{ matrix.label }}-${{ hashFiles('acestep.cpp/CMakeLists.txt') }}
+          restore-keys: acestep-ci-${{ matrix.label }}-
+
+      - name: Build acestep.cpp
+        run: |
+          cmake -S acestep.cpp -B acestep.cpp/build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            ${{ steps.detect.outputs.flags }}
+          cmake --build acestep.cpp/build --parallel
+
+      # ── Verify and collect binaries ──────────────────────────────────────
+      - name: Verify binaries
+        shell: bash
+        run: |
+          ALL_OK=1
+          for bin in ace-qwen3 dit-vae neural-codec; do
+            BIN_PATH=$(find acestep.cpp/build -name "$bin" -type f 2>/dev/null | head -1)
+            if [ -f "$BIN_PATH" ]; then
+              echo "✅ $bin → $BIN_PATH"
+            else
+              echo "⚠️  $bin not found in build tree"
+              ALL_OK=0
+            fi
+          done
+          if [ "$ALL_OK" = "1" ]; then
+            echo "All binaries built successfully"
+          else
+            echo "One or more binaries missing — check the build output above"
+            exit 1
+          fi
+
+      - name: Collect binaries
+        shell: bash
+        run: |
+          mkdir -p ci-bin
+          for bin in ace-qwen3 dit-vae neural-codec; do
+            BIN_PATH=$(find acestep.cpp/build -name "$bin" -type f 2>/dev/null | head -1)
+            if [ -f "$BIN_PATH" ]; then
+              cp "$BIN_PATH" "ci-bin/$bin"
+            fi
+          done
+          ls -lh ci-bin/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acestep-cpp-${{ matrix.label }}
+          path: ci-bin/
+          if-no-files-found: warn
+          retention-days: 7
+
