@@ -82,6 +82,14 @@ echo ""
 echo "Installing server dependencies..."
 cd server && npm install && cd ..
 
+echo ""
+echo "Building better-sqlite3 for your platform..."
+(cd server && npm rebuild better-sqlite3) || {
+  echo "Warning: Could not rebuild better-sqlite3 from source."
+  echo "  If the app fails to start, install build tools and run:"
+  echo "    cd server && npm rebuild better-sqlite3"
+}
+
 # ── Create runtime dirs ───────────────────────────────────────────────────────
 mkdir -p data public/audio logs
 
