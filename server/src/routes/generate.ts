@@ -594,26 +594,33 @@ router.get('/endpoints', authMiddleware, async (_req: AuthenticatedRequest, res:
 });
 
 router.get('/models', async (_req, res: Response) => {
-  try {
-    // Delegate to acestep-cpp for the authoritative model list
-    const apiRes = await fetch(`${config.acestep.apiUrl}/v1/models`);
-    if (apiRes.ok) {
-      const data = await apiRes.json() as any;
-      const models = data?.models || data?.data?.models || [];
-      res.json({ models });
-      return;
-    }
-  } catch {
-    // acestep-cpp not yet running; return known GGUF model list as fallback
+  // In HTTP mode: ask the server; in spawn mode: return current model from config
+  if (!config.acestep.bin) {
+    try {
+      const apiRes = await fetch(`${config.acestep.apiUrl}/v1/models`);
+      if (apiRes.ok) {
+        const data = await apiRes.json() as any;
+        // Support both { models: [...] } (acestep-cpp) and { data: { models: [...] } } legacy shape
+        const models = data?.models || data?.data?.models || [];
+        res.json({ models });
+        return;
+      }
+    } catch { /* fall through to defaults */ }
   }
 
-  // Fallback: well-known acestep-cpp model names
-  const models = [
-    { name: 'acestep-v15-turbo', is_active: true,  is_preloaded: false },
-    { name: 'acestep-v15-base',  is_active: false, is_preloaded: false },
-    { name: 'acestep-v15-sft',   is_active: false, is_preloaded: false },
-  ];
-  res.json({ models });
+  // Spawn mode (or HTTP server unreachable): report the configured model
+  const activeModel = config.acestep.model
+    ? path.basename(config.acestep.model, path.extname(config.acestep.model))
+    : 'acestep-v15-turbo';
+
+  res.json({
+    models: [
+      { name: activeModel,         is_active: true,  is_preloaded: Boolean(config.acestep.model) },
+      { name: 'acestep-v15-turbo', is_active: activeModel === 'acestep-v15-turbo', is_preloaded: false },
+      { name: 'acestep-v15-base',  is_active: false, is_preloaded: false },
+      { name: 'acestep-v15-sft',   is_active: false, is_preloaded: false },
+    ].filter((m, i, arr) => i === arr.findIndex(n => n.name === m.name)), // dedup
+  });
 });
 
 // GET /api/generate/random-description — Load a random simple description from Gradio
@@ -638,25 +645,25 @@ router.get('/random-description', authMiddleware, async (_req: AuthenticatedRequ
 router.get('/health', async (_req, res: Response) => {
   try {
     const healthy = await checkSpaceHealth();
-    res.json({ healthy, aceStepUrl: config.acestep.apiUrl });
+    const mode = config.acestep.bin ? 'spawn' : 'http';
+    res.json({ healthy, mode, bin: config.acestep.bin || null, aceStepUrl: config.acestep.apiUrl });
   } catch (error) {
-    res.json({ healthy: false, aceStepUrl: config.acestep.apiUrl, error: (error as Error).message });
+    res.json({ healthy: false, error: (error as Error).message });
   }
 });
 
 router.get('/limits', async (_req, res: Response) => {
-  // Query acestep-cpp for hardware limits
-  try {
-    const response = await fetch(`${config.acestep.apiUrl}/v1/limits`);
-    if (response.ok) {
-      const data = await response.json();
-      res.json(data);
-      return;
-    }
-  } catch {
-    // Fallback to safe defaults if the backend is not yet running
+  // In HTTP mode, ask the server; in spawn mode, return safe defaults
+  if (!config.acestep.bin) {
+    try {
+      const response = await fetch(`${config.acestep.apiUrl}/v1/limits`);
+      if (response.ok) {
+        res.json(await response.json());
+        return;
+      }
+    } catch { /* fall through */ }
   }
-  // Safe defaults when the C++ server is unreachable
+  // Safe defaults (users can override by setting VRAM-aware values in .env)
   res.json({
     tier: 'medium',
     gpu_memory_gb: 8,
@@ -680,58 +687,79 @@ router.get('/debug/:taskId', authMiddleware, async (req: AuthenticatedRequest, r
   }
 });
 
-// Format endpoint - uses LLM to enhance style/lyrics via acestep-cpp
+// Format endpoint - uses LLM to enhance style/lyrics
+// Spawn mode: runs `acestep-generate --mode format` with the prompt/lyrics as args
+// HTTP mode:  calls ACESTEP_API_URL/format_input
 router.post('/format', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { caption, lyrics, bpm, duration, keyScale, timeSignature, temperature, topK, topP, lmModel, lmBackend } = req.body;
+    const { caption, lyrics, bpm, duration, keyScale, timeSignature, temperature } = req.body;
 
     if (!caption) {
       res.status(400).json({ error: 'Caption/style is required' });
       return;
     }
 
-    const ACESTEP_API_URL = config.acestep.apiUrl;
+    // ── Spawn mode ────────────────────────────────────────────────────────
+    if (config.acestep.bin) {
+      const args: string[] = ['--mode', 'format', '--prompt', caption, '--json'];
+      if (lyrics)                args.push('--lyrics',      lyrics);
+      if (bpm && bpm > 0)        args.push('--bpm',         String(bpm));
+      if (duration && duration > 0) args.push('--duration', String(duration));
+      if (keyScale)              args.push('--key-scale',   keyScale);
+      if (timeSignature)         args.push('--time-signature', timeSignature);
+      if (temperature != null)   args.push('--temperature', String(temperature ?? 0.85));
+      if (config.acestep.model)  args.push('--model',       config.acestep.model);
 
-    // Build param_obj for the REST API
-    const paramObj: Record<string, unknown> = {};
-    if (bpm && bpm > 0) paramObj.bpm = bpm;
-    if (duration && duration > 0) paramObj.duration = duration;
-    if (keyScale) paramObj.key = keyScale;
-    if (timeSignature) paramObj.time_signature = timeSignature;
+      const { spawn } = await import('child_process');
+      const result = await new Promise<{ stdout: string; code: number }>((resolve) => {
+        const proc = spawn(config.acestep.bin!, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+        let stdout = ''; let stderr = '';
+        proc.stdout.on('data', (c: Buffer) => { stdout += c.toString(); });
+        proc.stderr.on('data', (c: Buffer) => { stderr += c.toString(); });
+        proc.on('close', (code) => resolve({ stdout: stdout || stderr, code: code ?? 1 }));
+        proc.on('error', (e) => resolve({ stdout: e.message, code: 1 }));
+      });
 
-    console.log(`[Format] Calling acestep-cpp: ${ACESTEP_API_URL}/format_input`);
-    const apiRes = await fetch(`${ACESTEP_API_URL}/format_input`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt: caption,
-        lyrics: lyrics || '',
-        temperature: temperature ?? 0.85,
-        param_obj: paramObj,
-      }),
-      signal: AbortSignal.timeout(300_000), // 5 min — LLM may need to init first
-    });
+      if (result.code !== 0) {
+        res.status(500).json({ success: false, error: result.stdout.slice(0, 500) });
+        return;
+      }
 
-    const apiData = await apiRes.json() as any;
-
-    if (!apiRes.ok) {
-      const errMsg = apiData.error || apiData.detail || `Format API returned ${apiRes.status}`;
-      console.error('[Format] API error:', errMsg);
-      res.status(500).json({ success: false, error: errMsg });
+      let parsed: any = {};
+      for (const line of result.stdout.split('\n').reverse()) {
+        if (line.trim().startsWith('{')) {
+          try { parsed = JSON.parse(line.trim()); break; } catch { /* next */ }
+        }
+      }
+      const d = parsed.data ?? parsed;
+      res.json({ caption: d.caption, lyrics: d.lyrics, bpm: d.bpm, duration: d.duration,
+                 key_scale: d.key_scale, time_signature: d.time_signature, vocal_language: d.vocal_language });
       return;
     }
 
-    // Support both wrapped { code, data } and flat response shapes
-    const d = apiData.data ?? apiData;
-    res.json({
-      caption: d.caption,
-      lyrics: d.lyrics,
-      bpm: d.bpm,
-      duration: d.duration,
-      key_scale: d.key_scale,
-      time_signature: d.time_signature,
-      vocal_language: d.vocal_language,
+    // ── HTTP mode ─────────────────────────────────────────────────────────
+    const paramObj: Record<string, unknown> = {};
+    if (bpm && bpm > 0)      paramObj.bpm            = bpm;
+    if (duration && duration > 0) paramObj.duration   = duration;
+    if (keyScale)            paramObj.key             = keyScale;
+    if (timeSignature)       paramObj.time_signature  = timeSignature;
+
+    console.log(`[Format] Calling HTTP server: ${config.acestep.apiUrl}/format_input`);
+    const apiRes = await fetch(`${config.acestep.apiUrl}/format_input`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: caption, lyrics: lyrics || '', temperature: temperature ?? 0.85, param_obj: paramObj }),
+      signal: AbortSignal.timeout(300_000),
     });
+
+    const apiData = await apiRes.json() as any;
+    if (!apiRes.ok) {
+      res.status(500).json({ success: false, error: apiData.error || `Format API returned ${apiRes.status}` });
+      return;
+    }
+    const d = apiData.data ?? apiData;
+    res.json({ caption: d.caption, lyrics: d.lyrics, bpm: d.bpm, duration: d.duration,
+               key_scale: d.key_scale, time_signature: d.time_signature, vocal_language: d.vocal_language });
   } catch (error) {
     console.error('[Format] Route error:', error);
     res.status(500).json({ error: (error as Error).message });

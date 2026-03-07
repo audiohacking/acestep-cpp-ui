@@ -16,8 +16,17 @@ export const config = {
     path: process.env.DATABASE_PATH || path.join(__dirname, '../../data/acestep.db'),
   },
 
-  // acestep-cpp API server
+  // acestep-cpp — two modes, checked in priority order:
+  //   1. Spawn mode (preferred): set ACESTEP_BIN to the path of the
+  //      acestep-generate binary. Node.js spawns it directly per job.
+  //   2. HTTP mode (advanced): set ACESTEP_API_URL to a running
+  //      acestep-cpp HTTP server (e.g. the built-in server of these.cpp).
   acestep: {
+    // Path to the `acestep-generate` binary (spawn mode — preferred)
+    bin: process.env.ACESTEP_BIN || '',
+    // Path to the GGUF model file passed to --model on each invocation
+    model: process.env.ACESTEP_MODEL || '',
+    // Fallback HTTP server URL (used only when ACESTEP_BIN is not set)
     apiUrl: process.env.ACESTEP_API_URL || 'http://localhost:7860',
   },
 

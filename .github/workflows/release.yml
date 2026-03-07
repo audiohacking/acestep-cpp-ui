@@ -15,16 +15,13 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Shared environment
-# ──────────────────────────────────────────────────────────────────────────────
 env:
   ACESTEP_CPP_REPO: https://github.com/ServeurpersoCom/acestep.cpp.git
   NODE_VERSION: "20"
 
 jobs:
   # ────────────────────────────────────────────────────────────────────────────
-  # 1. Build the React frontend (once — platform-independent)
+  # 1. Build the React frontend (platform-independent)
   # ────────────────────────────────────────────────────────────────────────────
   build-frontend:
     name: Build frontend
@@ -38,9 +35,7 @@ jobs:
           cache: "npm"
 
       - name: Install & build
-        run: |
-          npm ci
-          npm run build
+        run: npm ci && npm run build
 
       - uses: actions/upload-artifact@v4
         with:
@@ -49,7 +44,7 @@ jobs:
           retention-days: 1
 
   # ────────────────────────────────────────────────────────────────────────────
-  # 2. Compile the Node.js Express server (once — platform-independent JS)
+  # 2. Compile the Node.js server (platform-independent JS)
   # ────────────────────────────────────────────────────────────────────────────
   build-server:
     name: Build Node.js server
@@ -66,18 +61,15 @@ jobs:
           cache: "npm"
           cache-dependency-path: server/package-lock.json
 
-      - name: Install & compile
+      - name: Install, compile & prune to production deps
         run: |
           npm ci
           npm run build
-
-      - name: Prune to production dependencies
-        run: npm prune --production
+          npm prune --production
 
       - uses: actions/upload-artifact@v4
         with:
           name: server-bundle
-          # Upload compiled JS + production node_modules together
           path: |
             server/dist/
             server/node_modules/
@@ -85,7 +77,7 @@ jobs:
           retention-days: 1
 
   # ────────────────────────────────────────────────────────────────────────────
-  # 3. Per-platform: build acestep.cpp + C++ server, assemble bundle
+  # 3. Per-platform: build acestep.cpp, assemble bundle
   # ────────────────────────────────────────────────────────────────────────────
   build-platform:
     name: Build ${{ matrix.label }}
@@ -95,42 +87,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ── Linux x86_64 (CPU-only; users can rebuild with -DGGML_CUDA=ON)
+          # Linux x86_64 — CPU-only (rebuild with -DGGML_CUDA=ON for GPU)
           - label: linux-x64
             runner: ubuntu-22.04
             os: linux
-            arch: x64
-            cmake_extra: >-
-              -DGGML_CUDA=OFF
-              -DGGML_METAL=OFF
-            cc: gcc-12
-            cxx: g++-12
+            cmake_extra: -DGGML_CUDA=OFF -DGGML_METAL=OFF
 
-          # ── Linux ARM64 (QEMU cross-compile via arm64 runner or native)
+          # Linux ARM64
           - label: linux-arm64
             runner: ubuntu-22.04-arm
             os: linux
-            arch: arm64
-            cmake_extra: >-
-              -DGGML_CUDA=OFF
-              -DGGML_METAL=OFF
-            cc: gcc
-            cxx: g++
+            cmake_extra: -DGGML_CUDA=OFF -DGGML_METAL=OFF
 
-          # ── macOS Apple Silicon
+          # macOS Apple Silicon — Metal enabled
           - label: macos-arm64
             runner: macos-14
             os: macos
-            arch: arm64
-            cmake_extra: >-
-              -DGGML_CUDA=OFF
-              -DGGML_METAL=ON
-            cc: clang
-            cxx: clang++
-
-    env:
-      CC: ${{ matrix.cc }}
-      CXX: ${{ matrix.cxx }}
+            cmake_extra: -DGGML_CUDA=OFF -DGGML_METAL=ON
 
     steps:
       - uses: actions/checkout@v4
@@ -140,45 +113,22 @@ jobs:
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y \
-            cmake ninja-build \
-            gcc-12 g++-12 \
-            libssl-dev \
-            pkg-config
+          sudo apt-get install -y cmake ninja-build libssl-dev pkg-config
 
       - name: Install build tools (macOS)
         if: matrix.os == 'macos'
-        run: |
-          brew install cmake ninja
-
-      # ── Cache CMake FetchContent deps ───────────────────────────────────
-      - name: Cache CMake FetchContent
-        uses: actions/cache@v4
-        with:
-          path: backend/build/_deps
-          key: cmake-deps-${{ matrix.label }}-${{ hashFiles('backend/CMakeLists.txt') }}
-          restore-keys: cmake-deps-${{ matrix.label }}-
-
-      # ── Build the C++ HTTP server ───────────────────────────────────────
-      - name: Build C++ server
-        run: |
-          cmake -S backend -B backend/build \
-            -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            ${{ matrix.cmake_extra }}
-          cmake --build backend/build --parallel
+        run: brew install cmake ninja
 
       # ── Clone & build acestep.cpp ───────────────────────────────────────
       - name: Clone acestep.cpp
-        run: |
-          git clone --depth 1 ${{ env.ACESTEP_CPP_REPO }} acestep.cpp
+        run: git clone --depth 1 ${{ env.ACESTEP_CPP_REPO }} acestep.cpp
 
-      - name: Cache acestep.cpp build deps
+      - name: Cache acestep.cpp build artifacts
         uses: actions/cache@v4
         with:
-          path: acestep.cpp/build/_deps
-          key: acestep-deps-${{ matrix.label }}-${{ hashFiles('acestep.cpp/CMakeLists.txt') }}
-          restore-keys: acestep-deps-${{ matrix.label }}-
+          path: acestep.cpp/build
+          key: acestep-${{ matrix.label }}-${{ hashFiles('acestep.cpp/CMakeLists.txt') }}
+          restore-keys: acestep-${{ matrix.label }}-
 
       - name: Build acestep.cpp
         run: |
@@ -187,27 +137,23 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             ${{ matrix.cmake_extra }}
           cmake --build acestep.cpp/build --parallel
-        # Note: if the build fails because GGML_CUDA/GGML_METAL flags are not
-        # recognised by the upstream CMakeLists.txt, remove them here and set
-        # them in ACESTEP_CMAKE_EXTRA in your fork's secrets.
 
-      # ── Find the generated binary ────────────────────────────────────────
+      # Locate the generated binary (name may vary by project)
       - name: Locate acestep-generate binary
         id: locate-bin
         shell: bash
         run: |
-          # Search common output locations
-          BIN=$(find acestep.cpp/build -type f -name "acestep-generate" \
-                  -o -name "acestep_generate" \
-                  -o -name "main" \
-                2>/dev/null | head -1)
+          BIN=$(find acestep.cpp/build \
+                  \( -name "acestep-generate" -o -name "acestep_generate" \) \
+                  -type f 2>/dev/null | head -1)
           if [ -z "$BIN" ]; then
-            # Fallback: first executable in build/bin or build/
-            BIN=$(find acestep.cpp/build -type f -perm /111 ! -name "*.so" ! -name "*.dylib" \
+            # Fallback: first non-library executable in build tree
+            BIN=$(find acestep.cpp/build -maxdepth 3 -type f \
+                  -perm /111 ! -name "*.so" ! -name "*.dylib" \
                   2>/dev/null | head -1)
           fi
           echo "bin=$BIN" >> "$GITHUB_OUTPUT"
-          echo "Found binary: $BIN"
+          echo "Found: $BIN"
 
       # ── Download pre-built UI artifacts ─────────────────────────────────
       - uses: actions/download-artifact@v4
@@ -220,235 +166,154 @@ jobs:
           name: server-bundle
           path: _release/server-bundle
 
-      # ── Assemble the release directory ──────────────────────────────────
-      - name: Assemble release bundle
+      # ── Assemble the release bundle ──────────────────────────────────────
+      - name: Assemble bundle
         shell: bash
         run: |
           set -e
-          REL="release-bundle"
-          APP="acestep-cpp-ui"
-          mkdir -p "$REL/$APP/bin"
-          mkdir -p "$REL/$APP/dist"
-          mkdir -p "$REL/$APP/server/dist"
-          mkdir -p "$REL/$APP/server/node_modules"
-          mkdir -p "$REL/$APP/data"
-          mkdir -p "$REL/$APP/public/audio"
+          APP=acestep-cpp-ui
+          mkdir -p "$APP/bin" "$APP/dist" "$APP/server/dist" "$APP/server/node_modules" \
+                   "$APP/data" "$APP/public/audio" "$APP/logs"
 
-          # C++ HTTP server
-          cp backend/build/acestep-server "$REL/$APP/bin/"
-          chmod +x "$REL/$APP/bin/acestep-server"
+          # Node.js server (compiled JS + production node_modules)
+          cp -r _release/server-bundle/dist/.          "$APP/server/dist/"
+          cp -r _release/server-bundle/node_modules/.  "$APP/server/node_modules/"
+          cp    _release/server-bundle/package.json    "$APP/server/"
+
+          # React frontend (served by Vite/nginx in production, or the API server)
+          cp -r _release/dist/. "$APP/dist/"
 
           # acestep-generate binary
           ACESTEP_BIN="${{ steps.locate-bin.outputs.bin }}"
           if [ -f "$ACESTEP_BIN" ]; then
-            cp "$ACESTEP_BIN" "$REL/$APP/bin/acestep-generate"
-            chmod +x "$REL/$APP/bin/acestep-generate"
+            cp "$ACESTEP_BIN" "$APP/bin/acestep-generate"
+            chmod +x "$APP/bin/acestep-generate"
           else
-            echo "Warning: acestep-generate binary not found, skipping"
+            echo "Warning: acestep-generate not found; bundle will need the binary added manually"
           fi
-
-          # React frontend
-          cp -r _release/dist/. "$REL/$APP/dist/"
-
-          # Node.js server
-          cp -r _release/server-bundle/dist/.  "$REL/$APP/server/dist/"
-          cp -r _release/server-bundle/node_modules/. "$REL/$APP/server/node_modules/"
-          cp    _release/server-bundle/package.json   "$REL/$APP/server/"
 
           # .env template
-          cp .env.example "$REL/$APP/.env.example"
+          cp .env.example "$APP/.env.example"
 
-          # Generate start script (Linux/macOS)
-          cat > "$REL/$APP/start.sh" << 'STARTSH'
+          # start.sh
+          cat > "$APP/start.sh" << 'SH'
           #!/bin/bash
-          # ACE-Step UI — start everything
+          # ACE-Step UI — quick start
           set -e
-          SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-          cd "$SCRIPT_DIR"
+          DIR="$(cd "$(dirname "$0")" && pwd)"
+          cd "$DIR"
 
-          : "${ACESTEP_MODEL:?Please set ACESTEP_MODEL to your GGUF model path}"
+          # Load .env if present
+          [ -f .env ] && export $(grep -v '^#' .env | grep -v '^\s*$' | xargs)
+
+          : "${ACESTEP_BIN:=$DIR/bin/acestep-generate}"
+          : "${ACESTEP_MODEL:?Set ACESTEP_MODEL to your GGUF model path}"
           : "${PORT:=3001}"
-          : "${CPP_PORT:=7860}"
-          : "${AUDIO_DIR:=$SCRIPT_DIR/public/audio}"
 
-          mkdir -p logs public/audio data
+          mkdir -p logs data public/audio
 
-          echo "[1/2] Starting acestep-cpp server on port $CPP_PORT..."
-          ACESTEP_BIN="$SCRIPT_DIR/bin/acestep-generate" \
+          echo "Starting API server on port $PORT ..."
+          ACESTEP_BIN="$ACESTEP_BIN" \
           ACESTEP_MODEL="$ACESTEP_MODEL" \
-          AUDIO_DIR="$AUDIO_DIR" \
-          SERVER_PORT="$CPP_PORT" \
-          STATIC_DIR="$SCRIPT_DIR/dist" \
-            "$SCRIPT_DIR/bin/acestep-server" > logs/cpp-server.log 2>&1 &
-          CPP_PID=$!
-
-          sleep 3
-          if ! kill -0 $CPP_PID 2>/dev/null; then
-            echo "Error: C++ server failed. Check logs/cpp-server.log"
-            exit 1
-          fi
-
-          echo "[2/2] Starting Node.js API server on port $PORT..."
-          ACESTEP_API_URL="http://localhost:$CPP_PORT" \
           PORT="$PORT" \
-          DATABASE_PATH="$SCRIPT_DIR/data/acestep.db" \
-          AUDIO_DIR="$AUDIO_DIR" \
+          DATABASE_PATH="$DIR/data/acestep.db" \
+          AUDIO_DIR="$DIR/public/audio" \
           FRONTEND_URL="http://localhost:$PORT" \
-            node "$SCRIPT_DIR/server/dist/index.js" > logs/backend.log 2>&1 &
+            node "$DIR/server/dist/index.js" &
           NODE_PID=$!
 
           sleep 2
           echo ""
-          echo "════════════════════════════════"
-          echo "  ACE-Step UI is running!"
-          echo "  Open: http://localhost:$PORT"
-          echo "════════════════════════════════"
+          echo "ACE-Step UI → http://localhost:$PORT"
           echo ""
-          echo "PIDs: C++=$CPP_PID  Node=$NODE_PID"
-          echo "Logs: $SCRIPT_DIR/logs/"
-          echo ""
-          echo "Press Ctrl-C to stop."
-          trap 'kill $CPP_PID $NODE_PID 2>/dev/null; echo Stopped.' INT TERM
+          trap 'kill $NODE_PID 2>/dev/null; exit 0' INT TERM
           wait $NODE_PID
-          STARTSH
+          SH
+          chmod +x "$APP/start.sh"
 
-          chmod +x "$REL/$APP/start.sh"
-
-          # Generate start script (Windows)
-          cat > "$REL/$APP/start.bat" << 'STARTBAT'
+          # start.bat (Windows — needs WSL or separate build for the binary)
+          cat > "$APP/start.bat" << 'BAT'
           @echo off
           setlocal
-          set SCRIPT_DIR=%~dp0
-
-          if "%ACESTEP_MODEL%"=="" (
-            echo Error: Please set ACESTEP_MODEL environment variable to your GGUF model path.
-            pause & exit /b 1
-          )
-
-          if "%CPP_PORT%"=="" set CPP_PORT=7860
+          set DIR=%~dp0
+          if "%ACESTEP_BIN%"=="" set ACESTEP_BIN=%DIR%bin\acestep-generate.exe
+          if "%ACESTEP_MODEL%"=="" (echo Error: set ACESTEP_MODEL & pause & exit /b 1)
           if "%PORT%"=="" set PORT=3001
-
-          mkdir logs 2>nul
-          mkdir public\audio 2>nul
-          mkdir data 2>nul
-
-          echo Starting acestep-cpp server...
-          set ACESTEP_BIN=%SCRIPT_DIR%bin\acestep-generate.exe
-          set AUDIO_DIR=%SCRIPT_DIR%public\audio
-          set SERVER_PORT=%CPP_PORT%
-          set STATIC_DIR=%SCRIPT_DIR%dist
-          start "acestep-server" /B "%SCRIPT_DIR%bin\acestep-server.exe" > logs\cpp-server.log 2>&1
-
-          timeout /t 4 /nobreak >nul
-
-          echo Starting Node.js server...
-          set ACESTEP_API_URL=http://localhost:%CPP_PORT%
-          set DATABASE_PATH=%SCRIPT_DIR%data\acestep.db
+          mkdir logs 2>nul & mkdir data 2>nul & mkdir public\audio 2>nul
+          set DATABASE_PATH=%DIR%data\acestep.db
+          set AUDIO_DIR=%DIR%public\audio
           set FRONTEND_URL=http://localhost:%PORT%
-          start "node-server" /B node "%SCRIPT_DIR%server\dist\index.js" > logs\backend.log 2>&1
+          node "%DIR%server\dist\index.js"
+          BAT
 
-          timeout /t 2 /nobreak >nul
-          echo.
-          echo ACE-Step UI is running at http://localhost:%PORT%
-          echo.
-          pause
-          STARTBAT
+          # Release README
+          cat > "$APP/README.md" << 'MD'
+          # ACE-Step UI
 
-          # README for the release
-          cat > "$REL/$APP/README.md" << 'RDME'
-          # ACE-Step UI — Release Bundle
+          Self-contained release bundle — no Python required.  
+          Music generation is powered by [acestep.cpp](https://github.com/ServeurpersoCom/acestep.cpp).
 
-          A standalone bundle containing the ACE-Step UI web app and the `acestep-cpp`
-          generation engine.
+          ## Requirements
+
+          - **Node.js ≥ 20** (runtime for the API server)
+          - **A GGUF model file** — download from HuggingFace
 
           ## Quick Start
 
-          ### Requirements
-          - A GGUF model file (download from HuggingFace: `acestep-v15-turbo.gguf`)
-          - Node.js ≥ 20 (for the API server)
-          - No Python required
-
-          ### Linux / macOS
-
           ```bash
-          export ACESTEP_MODEL=/path/to/these.gguf
+          # Set your model path, then start
+          export ACESTEP_MODEL=/path/to/model.gguf
           ./start.sh
+          # → open http://localhost:3001
           ```
 
-          Then open **http://localhost:3001** in your browser.
-
-          ### Windows
-
-          ```batch
-          set ACESTEP_MODEL=C:\path\to\model.gguf
-          start.bat
-          ```
+          Or copy `.env.example` → `.env` and fill in `ACESTEP_MODEL`, then just run `./start.sh`.
 
           ## Environment Variables
 
           | Variable | Default | Description |
           |----------|---------|-------------|
           | `ACESTEP_MODEL` | *required* | Path to the GGUF model file |
-          | `PORT` | `3001` | Node.js API server port |
-          | `CPP_PORT` | `7860` | C++ generation server port |
+          | `ACESTEP_BIN` | `./bin/acestep-generate` | Path to the binary (pre-set in bundle) |
+          | `PORT` | `3001` | API + UI server port |
           | `AUDIO_DIR` | `./public/audio` | Where generated audio is stored |
           | `JWT_SECRET` | built-in | Change for multi-user deployments |
 
-          ## Directory Layout
+          ## GPU Acceleration
 
-          ```
-          acestep-cpp-ui/
-          ├── bin/
-          │   ├── acestep-server      # C++ HTTP server (generation API)
-          │   └── acestep-generate    # acestep.cpp inference binary
-          ├── dist/                   # Compiled React frontend
-          ├── server/                 # Node.js API server (auth, DB, songs)
-          ├── data/                   # SQLite database (auto-created)
-          ├── public/audio/           # Generated audio files
-          ├── start.sh / start.bat    # Quick-start scripts
-          └── .env.example            # All configuration options
-          ```
-
-          ## GPU Support
-
-          This release is built **CPU-only**.  
-          To use CUDA or Metal, rebuild from source:
+          This bundle is built **CPU-only**. For GPU support, rebuild `acestep.cpp` from source:
 
           ```bash
-          # CUDA (Linux)
-          cmake -S backend -B backend/build -DGGML_CUDA=ON
-          cmake --build backend/build --parallel
+          # CUDA (Linux/Windows)
+          cmake -S acestep.cpp -B build -DGGML_CUDA=ON && cmake --build build -j$(nproc)
 
           # Metal (macOS)
-          cmake -S backend -B backend/build -DGGML_METAL=ON
-          cmake --build backend/build --parallel
+          cmake -S acestep.cpp -B build -DGGML_METAL=ON && cmake --build build -j$(nproc)
           ```
-          RDME
 
-          echo "Bundle assembled in $REL/$APP"
-          ls -lh "$REL/$APP/bin/"
+          Then replace `bin/acestep-generate` with the new binary.
+          MD
 
-      # ── Strip and compress ───────────────────────────────────────────────
-      - name: Strip binaries (Linux)
+          echo "Bundle ready:"
+          ls -lh "$APP/bin/" 2>/dev/null || echo "  (no binaries)"
+
+      # ── Strip debug symbols ──────────────────────────────────────────────
+      - name: Strip binary (Linux)
         if: matrix.os == 'linux'
-        run: |
-          strip --strip-unneeded release-bundle/acestep-cpp-ui/bin/* 2>/dev/null || true
+        run: strip --strip-unneeded acestep-cpp-ui/bin/* 2>/dev/null || true
 
-      - name: Strip binaries (macOS)
+      - name: Strip binary (macOS)
         if: matrix.os == 'macos'
-        run: |
-          strip release-bundle/acestep-cpp-ui/bin/* 2>/dev/null || true
+        run: strip acestep-cpp-ui/bin/* 2>/dev/null || true
 
+      # ── Package ──────────────────────────────────────────────────────────
       - name: Create tarball
         shell: bash
         run: |
-          TAG="${{ github.ref_name }}"
-          # For workflow_dispatch without a tag, use the input
-          if [[ "$TAG" == refs/* ]] || [[ -z "$TAG" ]]; then
-            TAG="${{ github.event.inputs.tag || 'v0.0.0-dev' }}"
-          fi
+          TAG="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
+          [[ "$TAG" != v* ]] && TAG="${{ github.event.inputs.tag || 'v0.0.0-dev' }}"
           ARCHIVE="acestep-cpp-ui-${TAG}-${{ matrix.label }}.tar.gz"
-          tar -czf "$ARCHIVE" -C release-bundle .
+          tar -czf "$ARCHIVE" acestep-cpp-ui/
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
           ls -lh "$ARCHIVE"
 
@@ -459,7 +324,7 @@ jobs:
           retention-days: 7
 
   # ────────────────────────────────────────────────────────────────────────────
-  # 4. Create GitHub Release
+  # 4. Publish GitHub Release
   # ────────────────────────────────────────────────────────────────────────────
   publish-release:
     name: Publish GitHub Release
@@ -471,45 +336,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # for changelog generation
+          fetch-depth: 0
 
-      # Download all per-platform tarballs
       - uses: actions/download-artifact@v4
         with:
           pattern: release-*
           path: release-artifacts
           merge-multiple: true
 
-      - name: List release artifacts
+      - name: List artifacts
         run: ls -lh release-artifacts/
 
-      # Resolve the tag (works for both tag push and workflow_dispatch)
-      - name: Resolve release tag
+      - name: Resolve tag
         id: tag
         run: |
           TAG="${GITHUB_REF_NAME:-}"
-          if [[ "$TAG" == v* ]]; then
-            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${{ github.event.inputs.tag || 'v0.0.0-dev' }}" >> "$GITHUB_OUTPUT"
-          fi
+          [[ "$TAG" == v* ]] || TAG="${{ github.event.inputs.tag || 'v0.0.0-dev' }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      # Build a simple changelog from commits since the last tag
       - name: Generate changelog
         id: changelog
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [ -n "$PREV_TAG" ]; then
-            LOG=$(git log "$PREV_TAG"..HEAD --oneline --no-decorate 2>/dev/null | head -50)
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV" ]; then
+            LOG=$(git log "${PREV}..HEAD" --oneline --no-decorate 2>/dev/null | head -50)
           else
             LOG=$(git log --oneline --no-decorate | head -30)
           fi
-          # Write multi-line output safely
-          {
-            echo "log<<CHANGELOG_EOF"
-            echo "$LOG"
-            echo "CHANGELOG_EOF"
-          } >> "$GITHUB_OUTPUT"
+          { echo "log<<EOF"; echo "$LOG"; echo "EOF"; } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -521,28 +375,26 @@ jobs:
           body: |
             ## ACE-Step UI ${{ steps.tag.outputs.tag }}
 
-            Self-contained bundle: **no Python required** — generation is powered by
-            [acestep.cpp](https://github.com/ServeurpersoCom/acestep.cpp) (GGUF inference).
+            Self-contained bundle — **no Python required**.  
+            The Node.js API server spawns `acestep-generate` directly; no extra processes to manage.
 
             ### Platforms
-            | File | OS | Architecture |
-            |------|----|--------------|
-            | `acestep-cpp-ui-*-linux-x64.tar.gz`   | Linux  | x86_64       |
-            | `acestep-cpp-ui-*-linux-arm64.tar.gz`  | Linux  | ARM64        |
-            | `acestep-cpp-ui-*-macos-arm64.tar.gz`  | macOS  | Apple Silicon|
+            | File | OS | Arch |
+            |------|----|------|
+            | `*-linux-x64.tar.gz`  | Linux  | x86_64       |
+            | `*-linux-arm64.tar.gz`| Linux  | ARM64        |
+            | `*-macos-arm64.tar.gz`| macOS  | Apple Silicon|
 
             ### Quick Start
             ```bash
             tar xzf acestep-cpp-ui-*-linux-x64.tar.gz
             cd acestep-cpp-ui
             export ACESTEP_MODEL=/path/to/model.gguf
-            ./start.sh
-            # → open http://localhost:3001
+            ./start.sh          # → http://localhost:3001
             ```
 
-            > **GPU note:** These builds are CPU-only.  
-            > Rebuild from source with `-DGGML_CUDA=ON` (Linux) or `-DGGML_METAL=ON` (macOS)
-            > for GPU acceleration.
+            > **GPU note:** bundles are built CPU-only.  
+            > Replace `bin/acestep-generate` with a CUDA/Metal build for GPU acceleration.
 
             ### What's Changed
             ${{ steps.changelog.outputs.log }}
