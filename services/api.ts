@@ -557,3 +557,54 @@ export const contactApi = {
   submit: (data: ContactFormData): Promise<{ success: boolean; message: string; id: string }> =>
     api('/api/contact', { method: 'POST', body: data }),
 };
+
+// ── Model management API ──────────────────────────────────────────────────────
+
+export interface CatalogEntry {
+  filename: string;
+  label: string;
+  group: 'vae' | 'encoder' | 'lm' | 'dit';
+  quant: string;
+  variant?: string;
+  essential: boolean;
+  approxSizeMB: number;
+  // added by /status
+  downloaded?: boolean;
+  queued?: boolean;
+  active?: boolean;
+}
+
+export interface DownloadJob {
+  id: string;
+  filename: string;
+  status: 'queued' | 'downloading' | 'done' | 'error';
+  downloadedBytes: number;
+  totalBytes: number;
+  error?: string;
+}
+
+export interface ModelStatus {
+  modelsDir: string;
+  activeModel: string | null;
+  onDisk: string[];
+  catalog: CatalogEntry[];
+  queue: DownloadJob[];
+}
+
+export const modelsApi = {
+  getCatalog: (): Promise<{ catalog: CatalogEntry[]; repo: string }> =>
+    api('/api/models/catalog'),
+
+  getStatus: (): Promise<ModelStatus> =>
+    api('/api/models/status'),
+
+  download: (files: string[], token: string): Promise<{ enqueued: string[]; queueLength: number }> =>
+    api('/api/models/download', { method: 'POST', body: { files }, token }),
+
+  setActive: (filename: string, token: string): Promise<{ message: string; filename: string; path: string }> =>
+    api('/api/models/active', { method: 'POST', body: { filename }, token }),
+
+  /** Open an SSE stream for download progress. Returns the EventSource. */
+  streamProgress: (): EventSource =>
+    new EventSource(`${API_BASE}/api/models/download/stream`),
+};

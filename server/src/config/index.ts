@@ -24,10 +24,16 @@ export const config = {
   acestep: {
     // Path to the `acestep-generate` binary (spawn mode — preferred)
     bin: process.env.ACESTEP_BIN || '',
-    // Path to the GGUF model file passed to --model on each invocation
+    // Path to the GGUF model file passed to --model on each invocation.
+    // This is mutable at runtime (POST /api/models/active can change it).
     model: process.env.ACESTEP_MODEL || '',
     // Fallback HTTP server URL (used only when ACESTEP_BIN is not set)
     apiUrl: process.env.ACESTEP_API_URL || 'http://localhost:7860',
+  },
+
+  // GGUF model storage directory
+  models: {
+    dir: process.env.MODELS_DIR || path.join(__dirname, '../../../models'),
   },
 
   // Pexels (optional - for video backgrounds)

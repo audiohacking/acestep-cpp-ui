@@ -6,6 +6,7 @@ export const translations = {
     create: 'Create',
     library: 'Library',
     search: 'Search',
+    models: 'Models',
     news: 'News',
 
     // Theme
@@ -528,6 +529,7 @@ export const translations = {
     create: '创作',
     library: '音乐库',
     search: '搜索',
+    models: '模型',
     news: '新闻',
 
     // Theme
@@ -1050,6 +1052,7 @@ export const translations = {
     create: '作成',
     library: 'ライブラリ',
     search: '検索',
+    models: 'モデル',
     news: 'ニュース',
 
     // Theme
@@ -1572,6 +1575,7 @@ export const translations = {
     create: '생성',
     library: '라이브러리',
     search: '검색',
+    models: '모델',
     news: '뉴스',
 
     // Theme
