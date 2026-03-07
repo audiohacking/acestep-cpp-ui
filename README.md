@@ -2,80 +2,52 @@
   <img src="https://img.shields.io/badge/🎵-ACE--Step_UI-ff69b4?style=for-the-badge&labelColor=1a1a1a" alt="ACE-Step UI" height="60">
 </p>
 
-<h1 align="center">ACE-Step UI</h1>
+<h1 align="center">acestep-cpp-ui</h1>
 
 <p align="center">
-  <strong>The Ultimate Open Source Suno Alternative</strong><br>
-  <em>Seamless integration with <a href="https://github.com/ace-step/ACE-Step-1.5">ACE-Step 1.5</a> - The Open Source AI Music Generation Model</em>
+  <strong>Native C++ bundle for local AI music generation — no Python required</strong><br>
+  <em>Powered by <a href="https://github.com/audiohacking/acestep.cpp">acestep.cpp</a> — the GGUF-native C++ inference engine for ACE-Step 1.5</em>
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/@Ambsd-yy7os">
-    <img src="https://img.shields.io/badge/▶_Subscribe-YouTube-FF0000?style=for-the-badge&logo=youtube" alt="Subscribe on YouTube">
-  </a>
-  <a href="https://x.com/AmbsdOP">
-    <img src="https://img.shields.io/badge/Follow-@AmbsdOP-1DA1F2?style=for-the-badge&logo=x&logoColor=white" alt="Follow on X">
-  </a>
-</p>
-
-<p align="center">
-  <a href="#-demo">Demo</a> •
-  <a href="#-why-ace-step-ui">Why ACE-Step</a> •
+  <a href="#-about-this-fork">About</a> •
   <a href="#-features">Features</a> •
+  <a href="#-requirements">Requirements</a> •
   <a href="#-installation">Installation</a> •
   <a href="#-usage">Usage</a> •
+  <a href="#%EF%B8%8F-configuration">Configuration</a> •
   <a href="#-contributing">Contributing</a>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/React-18.3-61DAFB?style=flat-square&logo=react" alt="React">
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react" alt="React">
   <img src="https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript" alt="TypeScript">
   <img src="https://img.shields.io/badge/TailwindCSS-3.x-06B6D4?style=flat-square&logo=tailwindcss" alt="TailwindCSS">
   <img src="https://img.shields.io/badge/SQLite-Local_First-003B57?style=flat-square&logo=sqlite" alt="SQLite">
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License">
-  <img src="https://img.shields.io/github/stars/fspecii/ace-step-ui?style=flat-square" alt="Stars">
 </p>
 
 ---
 
-## 🎬 Demo
+## 🎯 About This Fork
 
-<p align="center">
-  <a href="https://www.youtube.com/watch?v=8zg0Xi36qGc">
-    <img src="https://img.shields.io/badge/▶_Watch_Full_Demo-YouTube-FF0000?style=for-the-badge&logo=youtube" alt="Watch Demo on YouTube">
-  </a>
-</p>
+**acestep-cpp-ui** is a fork of the original ace-step-ui project that replaces the Python/Gradio backend with a native C++ inference engine — [acestep.cpp](https://github.com/audiohacking/acestep.cpp).
 
-<p align="center">
-  <img src="docs/demo.gif" alt="ACE-Step UI - Open Source Suno Alternative" width="100%">
-</p>
+| | Original (Python) | This Fork (C++) |
+|--|--|--|
+| **Backend engine** | Python + Gradio | Native C++ binary |
+| **Model format** | HuggingFace safetensors | GGUF (quantized) |
+| **GPU support** | CUDA (NVIDIA) | CUDA, ROCm/HIP (AMD), Vulkan, Metal |
+| **Python required** | ✅ Yes | ❌ No |
+| **Memory footprint** | Full precision | Quantized (Q4–BF16) |
 
-<p align="center">
-  <em>Generate professional AI music with a Spotify-like interface - 100% free and local</em>
-</p>
+### Why C++?
 
----
-
-## 🚀 Why ACE-Step UI?
-
-**Tired of paying $10+/month for Suno or Udio?** ACE-Step 1.5 is the **open source Suno killer** that runs locally on your own GPU - and ACE-Step UI gives you a **beautiful, professional interface** to harness its full power.
-
-| Feature | Suno/Udio | ACE-Step UI |
-|---------|-----------|-------------|
-| **Cost** | $10-50/month | **FREE forever** |
-| **Privacy** | Cloud-based | **100% local** |
-| **Ownership** | Licensed | **You own everything** |
-| **Customization** | Limited | **Full control** |
-| **Queue Limits** | Restricted | **Unlimited** |
-| **Commercial Use** | Expensive tiers | **No restrictions** |
-
-### What Makes ACE-Step 1.5 Special?
-
-- **State-of-the-art quality** rivaling commercial services
-- **Full song generation** up to 4+ minutes with vocals
-- **Runs locally** - no internet required after setup
-- **Open source** - inspect, modify, improve
-- **Active development** - constant improvements
+- **No Python environment to manage** — just build once and run
+- **GGUF quantization** — run larger models with less VRAM
+- **Broader GPU support** — CUDA, ROCm/HIP (AMD), Vulkan, and Metal (macOS)
+- **Faster startup** — no Python interpreter or virtual environment overhead
+- **Single bundle** — build script, model downloader, and UI in one repo
 
 ---
 
@@ -109,15 +81,16 @@
 | **Prompt Templates** | Quick-start with genre presets |
 | **Reuse Prompts** | Clone settings from any previous generation |
 
-### 🎧 Professional Interface
+### 🎧 Interface
 | Feature | Description |
 |---------|-------------|
-| **Spotify-Inspired UI** | Clean, modern design with dark/light mode |
+| **Clean UI** | Modern design with dark/light mode |
 | **Bottom Player** | Full-featured player with waveform and progress |
 | **Library Management** | Browse, search, and organize all your tracks |
 | **Likes & Playlists** | Organize favorites into custom playlists |
 | **Real-time Progress** | Live generation progress with queue position |
 | **LAN Access** | Use from any device on your local network |
+| **Models Tab** | Download and manage GGUF model files from the UI |
 
 ### 🛠️ Built-in Tools
 | Feature | Description |
@@ -133,9 +106,9 @@
 
 | Layer | Technologies |
 |-------|-------------|
-| **Frontend** | React 18, TypeScript, TailwindCSS, Vite |
+| **Frontend** | React 19, TypeScript, TailwindCSS, Vite |
 | **Backend** | Express.js, SQLite, better-sqlite3 |
-| **AI Engine** | [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) (Gradio API) |
+| **AI Engine** | [acestep.cpp](https://github.com/audiohacking/acestep.cpp) (native C++ binary, GGUF models) |
 | **Audio Tools** | AudioMass, Demucs, FFmpeg |
 
 ---
@@ -144,235 +117,246 @@
 
 | Requirement | Specification |
 |-------------|---------------|
-| **Node.js** | 18 or higher |
-| **Python** | 3.10+ (3.11 recommended) OR Windows Portable Package |
-| **NVIDIA GPU** | 4GB+ VRAM (works without LLM), 12GB+ recommended (with LLM) |
-| **CUDA** | 12.8 (for Windows Portable Package) |
+| **Node.js** | 20 or higher (required by setup.sh; also ensures better-sqlite3 native addon builds cleanly) |
+| **cmake** | 3.20+ (for building the C++ engine) |
+| **git** | For cloning acestep.cpp and its submodules |
+| **C++ compiler** | GCC 11+ / Clang 13+ / MSVC 2022+ |
+| **GPU (optional)** | NVIDIA (CUDA), AMD (ROCm/HIP), Vulkan-capable, or Apple Silicon (Metal) |
 | **FFmpeg** | For audio processing |
-| **uv** | Python package manager (recommended for standard install) |
+
+> **No Python required.** The C++ engine runs standalone — just build it once and it stays ready.
 
 ---
 
 ## ⚡ Quick Start
 
-### 🎯 Pinokio - 1-Click Install (Recommended for All Users!)
-
-The easiest way to get ACE-Step UI up and running on **any platform** — no terminal, no manual setup:
-
-<p align="center">
-  <a href="https://beta.pinokio.co/apps/github-com-cocktailpeanut-ace-step-ui-pinokio">
-    <img src="https://img.shields.io/badge/⚡_Install_with_Pinokio-One_Click-ff69b4?style=for-the-badge&labelColor=1a1a1a" alt="Install with Pinokio" height="50">
-  </a>
-</p>
-
-> **[Pinokio](https://pinokio.computer)** handles everything automatically: Python, Node.js, dependencies, model downloads, and launching. Just click install and start making music.
-
----
-
-### 🪟 Windows - One-Click Start (Easiest!)
-```batch
-cd ace-step-ui
-start-all.bat
-```
-**That's it!** This starts everything: API + Backend + Frontend in one command.
-
-> **Note:** By default, it looks for ACE-Step in `..\ACE-Step-1.5`.
-> If yours is elsewhere, set `ACESTEP_PATH` first:
-> ```batch
-> set ACESTEP_PATH=C:\path\to\ACE-Step-1.5
-> start-all.bat
-> ```
-
-### 🪟 Windows - Manual Start
-```batch
-REM 1. Start ACE-Step Gradio (with API endpoints)
-cd C:\ACE-Step-1.5
-python_embeded\python -m acestep --port 8001 --enable-api --backend pt --server-name 127.0.0.1
-
-REM 2. Start ACE-Step UI (in another terminal)
-cd ace-step-ui
-start.bat
-```
-
-### Linux / macOS - One-Click Start (Easiest!)
+### Linux / macOS
 ```bash
-cd ace-step-ui
+# 1. Clone this repository
+git clone https://github.com/audiohacking/acestep-cpp-ui
+cd acestep-cpp-ui
+
+# 2. Run setup — builds acestep.cpp, downloads GGUF models, installs Node deps
+./setup.sh
+
+# 3. Configure paths
+cp .env.example .env
+# Edit .env: set ACESTEP_BIN and ACESTEP_MODEL (setup.sh prints the paths)
+
+# 4. Launch (starts Node.js API server + Vite frontend)
 ./start-all.sh
 ```
-**That's it!** This starts everything: Gradio + Backend + Frontend in one command.
 
-> **Note:** By default, it looks for ACE-Step in `../ACE-Step-1.5`.
-> If yours is elsewhere, set `ACESTEP_PATH` first:
-> ```bash
-> export ACESTEP_PATH=/path/to/ACE-Step-1.5
-> ./start-all.sh
-> ```
-> **To stop:** `./stop-all.sh`
+Open **http://localhost:5173**
 
-### Linux / macOS - Manual Start
-```bash
-# 1. Start ACE-Step Gradio with API (in ACE-Step-1.5 directory)
-cd /path/to/ACE-Step-1.5
-uv run acestep --port 8001 --enable-api --backend pt --server-name 127.0.0.1
-
-# 2. Start ACE-Step UI (in another terminal)
-cd ace-step-ui
-./start.sh
-```
-
-### Windows (Standard Installation)
+### Windows
 ```batch
-REM 1. Start ACE-Step Gradio with API (in ACE-Step-1.5 directory)
-cd C:\path\to\ACE-Step-1.5
-uv run acestep --port 8001 --enable-api --backend pt --server-name 127.0.0.1
+REM 1. Clone this repository
+git clone https://github.com/audiohacking/acestep-cpp-ui
+cd acestep-cpp-ui
 
-REM 2. Start ACE-Step UI (in another terminal)
-cd ace-step-ui
-start.bat
+REM 2. Run setup — builds acestep.cpp, downloads GGUF models, installs Node deps
+setup.bat
+
+REM 3. Configure paths
+copy .env.example .env
+REM Edit .env: set ACESTEP_BIN and ACESTEP_MODEL
+
+REM 4. Launch (starts Node.js API server + Vite frontend)
+start-all.bat
 ```
 
-Open **http://localhost:3000** and start creating!
+Open **http://localhost:5173**
 
 ---
 
-## 📦 Installation
+## 📦 Installation (Step-by-Step)
 
-### 1. Install ACE-Step (The AI Engine)
-
-#### 🪟 Windows Portable Package (Recommended for Windows)
-
-**The easiest way to get started on Windows!** This package includes everything pre-configured:
-
-1. **Download** [ACE-Step-1.5.7z](https://files.acemusic.ai/acemusic/win/ACE-Step-1.5.7z) (~5GB)
-2. **Extract** to `C:\ACE-Step-1.5` (or your preferred location)
-3. **Done!** The package includes `python_embeded` with all dependencies
-
-✅ **Works with 4GB GPU** - No LLM installation required
-✅ **CUDA 12.8** included
-✅ **Zero setup hassle**
-
-> **Note:** Thinking Mode (LLM features) is automatically disabled on GPUs with <12GB VRAM. You can still enable it manually if you have 12GB+.
-
-#### Standard Installation (All Platforms)
+### Step 1: Clone the repository
 
 ```bash
-# Clone ACE-Step 1.5 - the open source Suno alternative
-git clone https://github.com/ace-step/ACE-Step-1.5
-cd ACE-Step-1.5
-
-# Create virtual environment and install
-uv venv
-uv pip install -e .
-
-# Models download automatically on first run (~5GB)
-cd ..
+git clone https://github.com/audiohacking/acestep-cpp-ui
+cd acestep-cpp-ui
 ```
 
-### 2. Install ACE-Step UI (This Repository)
+### Step 2: Build the C++ engine
 
-#### Linux / macOS
+The `build.sh` / `build.bat` script clones [acestep.cpp](https://github.com/audiohacking/acestep.cpp), auto-detects your GPU (CUDA / ROCm / Vulkan / Metal), and compiles the binaries into `./bin/`.
+
+**Linux / macOS:**
 ```bash
-# Clone the UI
-git clone https://github.com/fspecii/ace-step-ui
-cd ace-step-ui
-
-# Run setup script (installs all dependencies)
-./setup.sh
+./build.sh
 ```
 
-#### Windows
+**Windows:**
 ```batch
-REM Clone the UI
-git clone https://github.com/fspecii/ace-step-ui
-cd ace-step-ui
-
-REM Run setup script (installs all dependencies)
-setup.bat
+build.bat
 ```
 
-#### Manual Installation (All Platforms)
+**Build options:**
+
+| Flag | Description |
+|------|-------------|
+| `--cuda` | Force CUDA (NVIDIA) build |
+| `--rocm` | Force ROCm/HIP (AMD) build |
+| `--vulkan` | Force Vulkan build |
+| `--cpu` | CPU-only build (no GPU) |
+| `--src DIR` | Custom source directory (default: `./acestep.cpp`) |
+| `--bin DIR` | Custom binary output directory (default: `./bin`) |
+
+After a successful build, three binaries are installed to `./bin/`:
+- `ace-qwen3` — text encoder
+- `dit-vae` — diffusion + VAE decoder
+- `neural-codec` — audio codec
+
+### Step 3: Download GGUF models
+
+The `models.sh` / `models.bat` script downloads pre-quantized GGUF model files from HuggingFace into `./models/`. No Python required — uses `curl` or `wget` (Linux/macOS) or PowerShell (Windows).
+
+**Linux / macOS:**
+```bash
+./models.sh
+```
+
+**Windows:**
+```batch
+models.bat
+```
+
+The default download is the **Q8_0 essential set** (~8 GB):
+- `vae-BF16.gguf` — VAE (always BF16)
+- `Qwen3-Embedding-0.6B-Q8_0.gguf` — text encoder
+- `acestep-5Hz-lm-4B-Q8_0.gguf` — language model (4B)
+- `acestep-v15-turbo-Q8_0.gguf` — DiT (turbo)
+
+**Model download options:**
+
+| Flag | Description |
+|------|-------------|
+| `--quant X` | Quantization: `Q4_K_M`, `Q5_K_M`, `Q6_K`, `Q8_0`, `BF16` (default: `Q8_0`) |
+| `--lm SIZE` | LM size: `0.6B`, `1.7B`, `4B` (default: `4B`) |
+| `--sft` | Also download SFT DiT variant |
+| `--base` | Also download base DiT variant |
+| `--shifts` | Also download shift1/shift3/continuous DiT variants |
+| `--all` | Download all models and all quants |
+| `--dir DIR` | Custom download directory (default: `./models`) |
+| `--hf-token TOKEN` | HuggingFace token for private/gated repos |
+
+### Step 4: Install Node.js dependencies
 
 ```bash
 # Install frontend dependencies
 npm install
 
 # Install server dependencies
-cd server
-npm install
-cd ..
+cd server && npm install && cd ..
 
-# Copy environment file
-# Linux/macOS:
-cp server/.env.example server/.env
-# Windows:
-copy server\.env.example server\.env
+# Rebuild native addon for your platform
+cd server && npm rebuild better-sqlite3 && cd ..
 ```
+
+Or run everything above in one step with `./setup.sh` / `setup.bat`.
+
+### Step 5: Configure `.env`
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set at minimum:
+
+```env
+# Path to the acestep-generate binary built in Step 2
+ACESTEP_BIN=./bin/acestep-generate
+
+# Path to your primary DiT GGUF model downloaded in Step 3
+ACESTEP_MODEL=./models/acestep-v15-turbo-Q8_0.gguf
+```
+
+See [⚙️ Configuration](#%EF%B8%8F-configuration) for all options.
 
 ---
 
 ## 🎮 Usage
 
-### Step 1: Start ACE-Step Gradio Server
-
-**🪟 Windows Portable Package:**
-```batch
-cd C:\ACE-Step-1.5
-python_embeded\python -m acestep --port 8001 --enable-api --backend pt --server-name 127.0.0.1
-```
+### One-Command Launch
 
 **Linux / macOS:**
 ```bash
-cd /path/to/ACE-Step-1.5
-uv run acestep --port 8001 --enable-api --backend pt --server-name 127.0.0.1
-```
-
-**Windows (Standard Installation):**
-```batch
-cd C:\path\to\ACE-Step-1.5
-uv run acestep --port 8001 --enable-api --backend pt --server-name 127.0.0.1
-```
-
-Wait for "API endpoints enabled" before proceeding.
-
-### Step 2: Start ACE-Step UI
-
-**Linux / macOS:**
-```bash
-cd ace-step-ui
-./start.sh
+./start-all.sh
 ```
 
 **Windows:**
 ```batch
-cd ace-step-ui
-start.bat
+start-all.bat
 ```
 
-### Step 3: Create Music!
+This starts the Node.js API server and the Vite frontend in a single command. The Node.js server spawns the `acestep-generate` C++ binary directly — no separate C++ server process needed. PID files are written to `./logs/` for graceful shutdown.
 
-| Access | URL |
-|--------|-----|
-| Local | http://localhost:3000 |
-| LAN (other devices) | http://YOUR_IP:3000 |
+| Service | URL |
+|---------|-----|
+| UI (frontend) | http://localhost:5173 |
+| API server | http://localhost:3001 |
+| LAN access | http://YOUR_IP:5173 |
+
+To stop on Linux/macOS:
+```bash
+kill $(cat logs/backend.pid) $(cat logs/frontend.pid)
+```
+On Windows, close the terminal windows that were opened by `start-all.bat`.
+
+### Manual Launch
+
+**Linux / macOS — backend:**
+```bash
+cd server && npm run dev
+```
+
+**Linux / macOS — frontend (separate terminal):**
+```bash
+npm run dev
+```
 
 ---
 
 ## ⚙️ Configuration
 
-Edit `server/.env`:
+Copy `.env.example` to `.env` and edit as needed:
 
 ```env
-# Server
+# ── Server ────────────────────────────────────────────────────────────────────
 PORT=3001
+NODE_ENV=development
 
-# ACE-Step Gradio URL (must match --port used when starting ACE-Step)
-ACESTEP_API_URL=http://localhost:8001
-
-# Database (local-first, no cloud)
+# ── Database ──────────────────────────────────────────────────────────────────
 DATABASE_PATH=./data/acestep.db
 
-# Optional: Pexels API for video backgrounds
-PEXELS_API_KEY=your_key_here
+# ── Model storage ─────────────────────────────────────────────────────────────
+MODELS_DIR=./models
+
+# ── acestep-cpp: choose ONE mode ──────────────────────────────────────────────
+
+# Mode 1 (recommended): Node.js spawns the binary directly
+ACESTEP_BIN=./bin/acestep-generate
+ACESTEP_MODEL=./models/acestep-v15-turbo-Q8_0.gguf
+
+# Mode 2 (advanced): connect to a separately running acestep-cpp HTTP server
+# ACESTEP_BIN=
+# ACESTEP_API_URL=http://localhost:7860
+
+# ── Storage ───────────────────────────────────────────────────────────────────
+AUDIO_DIR=./public/audio
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+FRONTEND_URL=http://localhost:5173
+VITE_API_URL=http://localhost:3001
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+JWT_SECRET=ace-step-ui-local-secret
+
+# ── Optional ──────────────────────────────────────────────────────────────────
+# HF_TOKEN=hf_...          # HuggingFace token for private repos
+# PEXELS_API_KEY=          # Pexels API key for video backgrounds
 ```
 
 ---
@@ -403,17 +387,12 @@ Full control over every parameter:
 | **AI Enhance ON** | LLM enriches your tags into a detailed caption and generates proper BPM, key, time signature | +10-20s |
 | **Thinking Mode** | Full LLM reasoning with audio code generation | Slowest, best quality |
 
-> **Tip:** If your genre tags (e.g. "pop, rock") produce ballad-like output, turn on **AI Enhance** for much better genre accuracy. No extra VRAM needed — the LLM runs on CPU with the PT backend.
-
 ### Batch Size & Bulk Generation
 
 | Setting | Description |
 |---------|-------------|
-| **Batch Size** | Number of variations generated per job (1-4). Default is **1** for broad GPU compatibility. Higher values generate more variations but use more VRAM. **8GB GPU users should keep this at 1.** |
-| **Bulk Generate** | Queue multiple independent generation jobs (1-10). Each job runs sequentially, so this is safe for any GPU. |
-| **LM Backend** | Choose between **PT** (~1.6 GB VRAM) and **VLLM** (~9.2 GB VRAM). PT is the default and works on most GPUs. |
-
-> **Tip:** Both batch size and bulk count are remembered in your browser — set them once and they stick for future sessions.
+| **Batch Size** | Number of variations generated per job (1-4). Default is **1** for broad GPU compatibility. Higher values generate more variations but use more VRAM. |
+| **Bulk Generate** | Queue multiple independent generation jobs (1-10). Each job runs sequentially. |
 
 ---
 
@@ -432,29 +411,27 @@ Full control over every parameter:
 
 | Issue | Solution |
 |-------|----------|
-| **ACE-Step not reachable** | Ensure Gradio server is running with `--enable-api` flag (see Usage section) |
-| **CUDA out of memory** | Use `--backend pt` (default), set batch size to **1**, reduce duration, or disable Thinking Mode |
-| **4GB GPU - Out of memory** | Use **PT** backend (default), batch size **1**, and keep **Thinking Mode OFF**. LLM features require 12GB+ |
-| **Genre always sounds like ballad** | Enable **AI Enhance** toggle in the Style section — it enriches your tags with proper metadata |
-| **AttributeError: 'NoneType'** | Update to latest ACE-Step-1.5 (fix merged in PR #109) |
+| **`ACESTEP_BIN` not found** | Run `./build.sh` (or `build.bat`) to compile the C++ engine; check that `./bin/acestep-generate` exists |
+| **Build fails: cmake not found** | Install cmake: `sudo apt install cmake` (Linux), `brew install cmake` (macOS), or from cmake.org (Windows) |
+| **Build fails: no C++ compiler** | Install build tools: `sudo apt install build-essential` (Linux), Xcode Command Line Tools (macOS), or Visual Studio 2022 with C++ workload (Windows) |
+| **CUDA out of memory** | Use a lower quantization (e.g. `Q4_K_M`), reduce duration, or disable Thinking Mode |
+| **No GPU detected — CPU build** | Pass `--cuda`, `--rocm`, or `--vulkan` to `build.sh` to force a GPU backend |
 | **Songs show 0:00 duration** | Install FFmpeg: `sudo apt install ffmpeg` (Linux) or download from [ffmpeg.org](https://ffmpeg.org) (Windows) |
-| **LAN access not working** | Check firewall allows ports 3000 and 3001 |
+| **LAN access not working** | Check firewall allows ports 5173 and 3001 |
+| **`better-sqlite3` fails to load** | Run `cd server && npm rebuild better-sqlite3` with build tools installed |
 
 ---
 
 ## 🤝 Contributing
 
-**We need your help to make ACE-Step UI even better!**
-
-This is a community-driven project and contributions are what make open source amazing. Whether you're fixing bugs, adding features, improving documentation, or sharing ideas - every contribution counts!
+Contributions are welcome! Whether you're fixing bugs, adding features, improving documentation, or sharing ideas — every contribution counts.
 
 ### Ways to Contribute
 
-- 🐛 **Report bugs** - Found an issue? Open a GitHub issue
-- 💡 **Suggest features** - Have an idea? We'd love to hear it
-- 🔧 **Submit PRs** - Code contributions are always welcome
-- 📖 **Improve docs** - Help others get started
-- ⭐ **Star the repo** - Show your support!
+- 🐛 **Report bugs** — Found an issue? Open a GitHub issue
+- 💡 **Suggest features** — Have an idea? We'd love to hear it
+- 🔧 **Submit PRs** — Code contributions are always welcome
+- 📖 **Improve docs** — Help others get started
 
 ### How to Contribute
 
@@ -466,36 +443,14 @@ This is a community-driven project and contributions are what make open source a
 
 ---
 
-## 📣 Stay Connected
-
-<p align="center">
-  <a href="https://www.youtube.com/@Ambsd-yy7os">
-    <img src="https://img.shields.io/badge/YouTube-Subscribe_for_Tutorials-FF0000?style=for-the-badge&logo=youtube" alt="YouTube">
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://x.com/AmbsdOP">
-    <img src="https://img.shields.io/badge/X_(Twitter)-Follow_for_Updates-1DA1F2?style=for-the-badge&logo=x&logoColor=white" alt="X/Twitter">
-  </a>
-</p>
-
-<p align="center">
-  <strong>Subscribe and follow for:</strong><br>
-  🎥 Video tutorials and demos<br>
-  🚀 New feature announcements<br>
-  💡 Tips and tricks<br>
-  🎵 AI music generation news
-</p>
-
----
-
 ## 🙏 Credits
 
-- **[ACE-Step](https://github.com/ace-step/ACE-Step-1.5)** - The revolutionary open source AI music generation model
-- **[AudioMass](https://github.com/pkalogiros/AudioMass)** - Web audio editor
-- **[Demucs](https://github.com/facebookresearch/demucs)** - Audio source separation
-- **[Pexels](https://www.pexels.com)** - Stock video backgrounds
+- **[acestep.cpp](https://github.com/audiohacking/acestep.cpp)** — Native C++ inference engine for ACE-Step 1.5 (GGUF)
+- **ace-step-ui** — Original React/TypeScript UI this fork is based on
+- **[ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5)** — The open source AI music generation model
+- **[AudioMass](https://github.com/pkalogiros/AudioMass)** — Web audio editor
+- **[Demucs](https://github.com/facebookresearch/demucs)** — Audio source separation
+- **[Pexels](https://www.pexels.com)** — Stock video backgrounds
 
 ---
 
@@ -506,13 +461,5 @@ This project is open source under the [MIT License](LICENSE).
 ---
 
 <p align="center">
-  <strong>⭐ If ACE-Step UI helps you create amazing music, please star this repo! ⭐</strong>
-</p>
-
-<p align="center">
   <em>Made with ❤️ for the open-source AI music community</em>
-</p>
-
-<p align="center">
-  <strong>Stop paying for Suno. Start creating with ACE-Step.</strong>
 </p>
