@@ -40,6 +40,15 @@ if %ERRORLEVEL% NEQ 0 (
     pause
     exit /b 1
 )
+
+echo.
+echo Building better-sqlite3 for your platform...
+call npm rebuild better-sqlite3
+if %ERRORLEVEL% NEQ 0 (
+    echo Warning: Could not rebuild better-sqlite3 from source.
+    echo   If the app fails to start, install build tools and run:
+    echo     cd server ^&^& npm rebuild better-sqlite3
+)
 cd ..
 
 REM Create server .env if it doesn't exist
