@@ -1,10 +1,7 @@
 name: CI
 
 on:
-  push:
-    branches: [main, develop, "copilot/**"]
   pull_request:
-    branches: [main, develop]
 
 concurrency:
   group: ci-${{ github.ref }}
