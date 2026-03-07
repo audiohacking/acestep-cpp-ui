@@ -1,87 +1,94 @@
 #!/bin/bash
-# ACE-Step UI Setup Script
-
+# ACE-Step UI Setup Script (acestep-cpp edition)
 set -e
 
 echo "=================================="
 echo "  ACE-Step UI Setup"
 echo "=================================="
 
-# Check if ACE-Step exists
-ACESTEP_PATH="${ACESTEP_PATH:-../ACE-Step-1.5}"
+# -----------------------------------------------------------------------
+# Check for acestep.cpp build
+# -----------------------------------------------------------------------
+ACESTEP_CPP_DIR="${ACESTEP_CPP_DIR:-../acestep.cpp}"
+ACESTEP_BIN_DEFAULT="$ACESTEP_CPP_DIR/build/bin/acestep-generate"
 
-if [ ! -d "$ACESTEP_PATH" ]; then
-    echo "Error: ACE-Step not found at $ACESTEP_PATH"
-    echo ""
-    echo "Please clone ACE-Step first:"
-    echo "  cd .."
-    echo "  git clone https://github.com/ace-step/ACE-Step-1.5"
-    echo "  cd ACE-Step-1.5"
-    echo "  uv venv && uv pip install -e ."
-    echo "  cd ../ace-step-ui"
-    echo "  ./setup.sh"
-    exit 1
+if [ ! -d "$ACESTEP_CPP_DIR" ]; then
+  echo ""
+  echo "Warning: acestep.cpp not found at $ACESTEP_CPP_DIR"
+  echo ""
+  echo "Please build it first:"
+  echo "  git clone https://github.com/ServeurpersoCom/acestep.cpp ../acestep.cpp"
+  echo "  cd ../acestep.cpp"
+  echo "  cmake -B build -DCMAKE_BUILD_TYPE=Release"
+  echo "  cmake --build build -j\$(nproc)"
+  echo "  cd ../acestep-cpp-ui"
+  echo ""
+  echo "Then run ./setup.sh again."
+  echo ""
+  # Continue anyway so UI dependencies get installed
 fi
 
-if [ ! -d "$ACESTEP_PATH/.venv" ]; then
-    echo "Error: ACE-Step venv not found. Please set up ACE-Step first:"
-    echo "  cd $ACESTEP_PATH"
-    echo "  uv venv && uv pip install -e ."
-    exit 1
+# -----------------------------------------------------------------------
+# Build the C++ generation server
+# -----------------------------------------------------------------------
+echo ""
+echo "Building C++ generation server..."
+if [ -d "backend" ]; then
+  cd backend
+  set -o pipefail
+  cmake -B build -DCMAKE_BUILD_TYPE=Release \
+    -DACESTEP_CPP_DIR="$(cd "$ACESTEP_CPP_DIR" 2>/dev/null && pwd || echo "$ACESTEP_CPP_DIR")" \
+    -S .
+  cmake --build build --parallel
+  cd ..
+  echo "C++ server built: backend/build/acestep-server"
+else
+  echo "Warning: backend/ directory not found, skipping C++ server build"
 fi
 
-echo "Found ACE-Step at: $ACESTEP_PATH"
-
-# Get absolute path
-ACESTEP_PATH=$(cd "$ACESTEP_PATH" && pwd)
-
+# -----------------------------------------------------------------------
 # Create .env file
-echo "Creating .env file..."
-cat > .env << EOF
-# ACE-Step UI Configuration
+# -----------------------------------------------------------------------
+if [ ! -f ".env" ]; then
+  echo ""
+  echo "Creating .env file..."
+  cp .env.example .env
+  echo "Created .env from .env.example"
+  echo ""
+  echo "IMPORTANT: Edit .env and set:"
+  echo "  ACESTEP_BIN   = path to your acestep-generate binary"
+  echo "  ACESTEP_MODEL = path to your GGUF model file"
+  echo ""
+fi
 
-# Path to ACE-Step installation
-ACESTEP_PATH=$ACESTEP_PATH
-
-# Server ports
-PORT=3001
-FRONTEND_PORT=3000
-
-# Database
-DATABASE_PATH=./server/data/acestep.db
-EOF
-
-# Install frontend dependencies
+# -----------------------------------------------------------------------
+# Install Node.js dependencies
+# -----------------------------------------------------------------------
 echo ""
 echo "Installing frontend dependencies..."
 npm install
 
-# Install server dependencies
 echo ""
 echo "Installing server dependencies..."
-cd server
-npm install
-cd ..
-
-# Initialize database
-echo ""
-echo "Initializing database..."
-cd server
-npm run migrate 2>/dev/null || echo "Migration script not found, skipping..."
-cd ..
+cd server && npm install && cd ..
 
 echo ""
 echo "=================================="
 echo "  Setup Complete!"
 echo "=================================="
 echo ""
-echo "To start the application:"
+echo "Next steps:"
 echo ""
-echo "  # Terminal 1 - Start backend"
-echo "  cd server && npm run dev"
+echo "  1. Start the C++ generation server:"
+echo "       ACESTEP_BIN=/path/to/acestep-generate \\"
+echo "       ACESTEP_MODEL=/path/to/model.gguf \\"
+echo "       ./backend/build/acestep-server"
 echo ""
-echo "  # Terminal 2 - Start frontend"
-echo "  npm run dev"
+echo "  2. In a second terminal — start the Node.js backend:"
+echo "       cd server && npm run dev"
 echo ""
-echo "Then open http://localhost:3000"
+echo "  3. In a third terminal — start the frontend:"
+echo "       npm run dev"
+echo ""
+echo "Then open http://localhost:5173"
 echo ""

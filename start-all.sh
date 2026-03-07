@@ -1,151 +1,150 @@
 #!/bin/bash
-# ACE-Step UI Complete Startup Script for Linux/macOS
-# Starts ACE-Step API + Backend + Frontend
-
+# ACE-Step UI Complete Startup Script (acestep-cpp edition)
 set -e
 
 echo "=================================="
-echo "  ACE-Step Complete Startup"
+echo "  ACE-Step UI Startup"
 echo "=================================="
-echo
+echo ""
 
-# Check if node_modules exists
+# -----------------------------------------------------------------------
+# Check Node.js dependencies
+# -----------------------------------------------------------------------
 if [ ! -d "node_modules" ]; then
-    echo "Error: UI dependencies not installed!"
-    echo "Please run ./setup.sh first."
-    exit 1
+  echo "Error: UI dependencies not installed. Run ./setup.sh first."
+  exit 1
 fi
-
 if [ ! -d "server/node_modules" ]; then
-    echo "Error: Server dependencies not installed!"
-    echo "Please run ./setup.sh first."
-    exit 1
+  echo "Error: Server dependencies not installed. Run ./setup.sh first."
+  exit 1
 fi
 
-# Get ACE-Step path from environment or use default
-ACESTEP_PATH="${ACESTEP_PATH:-../ACE-Step-1.5}"
+# -----------------------------------------------------------------------
+# Locate the C++ generation server binary
+# -----------------------------------------------------------------------
+ACESTEP_SERVER="${ACESTEP_SERVER:-./backend/build/acestep-server}"
+ACESTEP_BIN="${ACESTEP_BIN:-}"
+ACESTEP_MODEL="${ACESTEP_MODEL:-}"
+AUDIO_DIR="${AUDIO_DIR:-./server/public/audio}"
+CPP_PORT="${CPP_PORT:-7860}"
 
-# Check if ACE-Step exists
-if [ ! -d "$ACESTEP_PATH" ]; then
-    echo
-    echo "Warning: ACE-Step not found at $ACESTEP_PATH"
-    echo
-    echo "Please set ACESTEP_PATH or place ACE-Step-1.5 next to ace-step-ui"
-    echo "Example: export ACESTEP_PATH=/path/to/ACE-Step-1.5"
-    echo
-    exit 1
+if [ ! -x "$ACESTEP_SERVER" ]; then
+  echo "Error: C++ server binary not found at $ACESTEP_SERVER"
+  echo ""
+  echo "Please build it first:"
+  echo "  cd backend"
+  echo "  cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j\$(nproc)"
+  exit 1
 fi
 
+if [ -z "$ACESTEP_BIN" ]; then
+  echo "Error: ACESTEP_BIN not set. Point it to your acestep-generate binary."
+  echo "  export ACESTEP_BIN=/path/to/acestep-generate"
+  exit 1
+fi
+
+if [ -z "$ACESTEP_MODEL" ]; then
+  echo "Error: ACESTEP_MODEL not set. Point it to your GGUF model file."
+  echo "  export ACESTEP_MODEL=/path/to/model.gguf"
+  exit 1
+fi
+
+# -----------------------------------------------------------------------
 # Get local IP for LAN access
+# -----------------------------------------------------------------------
 if command -v ip &> /dev/null; then
-    LOCAL_IP=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || echo "")
+  LOCAL_IP=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || echo "")
 elif command -v ifconfig &> /dev/null; then
-    LOCAL_IP=$(ifconfig | grep "inet " | grep -v 127.0.0.1 | awk '{print $2}' | head -n1)
+  LOCAL_IP=$(ifconfig | grep "inet " | grep -v 127.0.0.1 | awk '{print $2}' | head -n1)
 fi
 
-echo
-echo "=================================="
-echo "  Starting All Services..."
-echo "=================================="
-echo
-
-# Create log directory
 mkdir -p logs
 
-# Start ACE-Step API in background
-echo "[1/3] Starting ACE-Step API server..."
-cd "$ACESTEP_PATH"
-uv run acestep-api --port 8001 > "../ace-step-ui/logs/api.log" 2>&1 &
-API_PID=$!
-cd - > /dev/null
+# -----------------------------------------------------------------------
+# 1. Start the C++ generation server
+# -----------------------------------------------------------------------
+echo "[1/3] Starting acestep-cpp generation server..."
+ACESTEP_BIN="$ACESTEP_BIN" \
+ACESTEP_MODEL="$ACESTEP_MODEL" \
+AUDIO_DIR="$AUDIO_DIR" \
+SERVER_PORT="$CPP_PORT" \
+  "$ACESTEP_SERVER" > logs/cpp-server.log 2>&1 &
+CPP_PID=$!
+echo "      PID: $CPP_PID"
 
-# Wait for API to start
-echo "Waiting for API to initialize..."
-sleep 5
-
-# Check if API started successfully
-if ! kill -0 $API_PID 2>/dev/null; then
-    echo "Error: API failed to start. Check logs/api.log"
-    exit 1
+echo "      Waiting for C++ server to start..."
+sleep 3
+if ! kill -0 $CPP_PID 2>/dev/null; then
+  echo "Error: C++ server failed to start. Check logs/cpp-server.log"
+  tail -20 logs/cpp-server.log
+  exit 1
 fi
 
-# Start backend in background
-echo "[2/3] Starting backend server..."
+# -----------------------------------------------------------------------
+# 2. Start the Node.js backend
+# -----------------------------------------------------------------------
+echo "[2/3] Starting Node.js backend..."
 cd server
-npm run dev > ../logs/backend.log 2>&1 &
+ACESTEP_API_URL="http://localhost:$CPP_PORT" \
+  npm run dev > ../logs/backend.log 2>&1 &
 BACKEND_PID=$!
 cd ..
+echo "      PID: $BACKEND_PID"
 
-# Wait for backend to start
-echo "Waiting for backend to start..."
 sleep 3
-
-# Check if backend started successfully
 if ! kill -0 $BACKEND_PID 2>/dev/null; then
-    echo "Error: Backend failed to start. Check logs/backend.log"
-    kill $API_PID 2>/dev/null
-    exit 1
+  echo "Error: Backend failed to start. Check logs/backend.log"
+  kill $CPP_PID 2>/dev/null
+  exit 1
 fi
 
-# Start frontend in background
+# -----------------------------------------------------------------------
+# 3. Start the Vite frontend
+# -----------------------------------------------------------------------
 echo "[3/3] Starting frontend..."
 npm run dev > logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
+echo "      PID: $FRONTEND_PID"
 
-# Wait a moment
 sleep 2
-
-# Check if frontend started successfully
 if ! kill -0 $FRONTEND_PID 2>/dev/null; then
-    echo "Error: Frontend failed to start. Check logs/frontend.log"
-    kill $API_PID $BACKEND_PID 2>/dev/null
-    exit 1
+  echo "Error: Frontend failed to start. Check logs/frontend.log"
+  kill $CPP_PID $BACKEND_PID 2>/dev/null
+  exit 1
 fi
 
-echo
+echo ""
 echo "=================================="
 echo "  All Services Running!"
 echo "=================================="
-echo
-echo "  ACE-Step API: http://localhost:8001"
-echo "  Backend:      http://localhost:3001"
-echo "  Frontend:     http://localhost:3000"
-echo
+echo ""
+echo "  C++ Generation : http://localhost:$CPP_PORT"
+echo "  Backend API    : http://localhost:3001"
+echo "  Frontend       : http://localhost:5173"
+echo ""
 if [ -n "$LOCAL_IP" ]; then
-    echo "  LAN Access:   http://$LOCAL_IP:3000"
-    echo
+  echo "  LAN Access     : http://$LOCAL_IP:5173"
+  echo ""
 fi
-echo "  Logs:         ./logs/"
-echo
-echo "  PIDs:"
-echo "    API:      $API_PID"
-echo "    Backend:  $BACKEND_PID"
-echo "    Frontend: $FRONTEND_PID"
-echo
+echo "  Logs: ./logs/"
 echo "=================================="
-echo
 
-# Save PIDs for stop script
-echo "$API_PID" > logs/api.pid
-echo "$BACKEND_PID" > logs/backend.pid
+echo "$CPP_PID"      > logs/cpp-server.pid
+echo "$BACKEND_PID"  > logs/backend.pid
 echo "$FRONTEND_PID" > logs/frontend.pid
 
-echo "Opening browser..."
 sleep 3
 
-# Open browser based on OS
+# Open browser
 if command -v xdg-open &> /dev/null; then
-    xdg-open http://localhost:3000 &
+  xdg-open http://localhost:5173 &
 elif command -v open &> /dev/null; then
-    open http://localhost:3000 &
+  open http://localhost:5173 &
 fi
 
-echo
-echo "Services are running in background."
+echo ""
 echo "To stop all services, run: ./stop-all.sh"
-echo "Or press Ctrl+C and they will continue running."
-echo
+echo ""
 
-# Wait for user interrupt
 trap 'echo; echo "Services still running. Use ./stop-all.sh to stop them."; exit 0' INT
 wait

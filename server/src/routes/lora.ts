@@ -1,10 +1,11 @@
 import { Router, Response } from 'express';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth.js';
-import { getGradioClient } from '../services/gradio-client.js';
+import { config } from '../config/index.js';
 
 const router = Router();
+const ACESTEP_API = config.acestep.apiUrl;
 
-// Local LoRA state tracking (Gradio doesn't have a dedicated status endpoint)
+// Local LoRA state tracking
 let loraState = {
   loaded: false,
   active: false,
@@ -21,13 +22,21 @@ router.post('/load', authMiddleware, async (req: AuthenticatedRequest, res: Resp
       return;
     }
 
-    const client = await getGradioClient();
-    const result = await client.predict('/load_lora', [lora_path]);
-    const status = (result.data as unknown[])[0] as string;
+    const response = await fetch(`${ACESTEP_API}/v1/lora/load`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lora_path }),
+    });
 
+    if (!response.ok) {
+      const errText = await response.text().catch(() => `HTTP ${response.status}`);
+      throw new Error(`acestep-cpp lora load failed: ${response.status} ${errText}`);
+    }
+
+    const data = await response.json() as { message?: string };
     loraState = { loaded: true, active: true, scale: loraState.scale, path: lora_path };
 
-    res.json({ message: status, lora_path, loaded: true });
+    res.json({ message: data.message || 'LoRA loaded', lora_path, loaded: true });
   } catch (error) {
     console.error('[LoRA] Load error:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to load LoRA' });
@@ -37,13 +46,20 @@ router.post('/load', authMiddleware, async (req: AuthenticatedRequest, res: Resp
 // POST /api/lora/unload — Unload the current LoRA adapter
 router.post('/unload', authMiddleware, async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    const client = await getGradioClient();
-    const result = await client.predict('/unload_lora', []);
-    const status = (result.data as unknown[])[0] as string;
+    const response = await fetch(`${ACESTEP_API}/v1/lora/unload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
 
+    if (!response.ok) {
+      const errText = await response.text().catch(() => `HTTP ${response.status}`);
+      throw new Error(`acestep-cpp lora unload failed: ${response.status} ${errText}`);
+    }
+
+    const data = await response.json() as { message?: string };
     loraState = { loaded: false, active: false, scale: 1.0, path: '' };
 
-    res.json({ message: status });
+    res.json({ message: data.message || 'LoRA unloaded' });
   } catch (error) {
     console.error('[LoRA] Unload error:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to unload LoRA' });
@@ -59,13 +75,21 @@ router.post('/scale', authMiddleware, async (req: AuthenticatedRequest, res: Res
       return;
     }
 
-    const client = await getGradioClient();
-    const result = await client.predict('/set_lora_scale', [scale]);
-    const status = (result.data as unknown[])[0] as string;
+    const response = await fetch(`${ACESTEP_API}/v1/lora/scale`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scale }),
+    });
 
+    if (!response.ok) {
+      const errText = await response.text().catch(() => `HTTP ${response.status}`);
+      throw new Error(`acestep-cpp lora scale failed: ${response.status} ${errText}`);
+    }
+
+    const data = await response.json() as { message?: string };
     loraState.scale = scale;
 
-    res.json({ message: status, scale });
+    res.json({ message: data.message || 'LoRA scale updated', scale });
   } catch (error) {
     console.error('[LoRA] Scale error:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to set LoRA scale' });
@@ -78,13 +102,21 @@ router.post('/toggle', authMiddleware, async (req: AuthenticatedRequest, res: Re
     const { enabled } = req.body;
     const useLoRA = typeof enabled === 'boolean' ? enabled : !loraState.active;
 
-    const client = await getGradioClient();
-    const result = await client.predict('/set_use_lora', [useLoRA]);
-    const status = (result.data as unknown[])[0] as string;
+    const response = await fetch(`${ACESTEP_API}/v1/lora/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: useLoRA }),
+    });
 
+    if (!response.ok) {
+      const errText = await response.text().catch(() => `HTTP ${response.status}`);
+      throw new Error(`acestep-cpp lora toggle failed: ${response.status} ${errText}`);
+    }
+
+    const data = await response.json() as { message?: string };
     loraState.active = useLoRA;
 
-    res.json({ message: status, active: useLoRA });
+    res.json({ message: data.message || `LoRA ${useLoRA ? 'enabled' : 'disabled'}`, active: useLoRA });
   } catch (error) {
     console.error('[LoRA] Toggle error:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to toggle LoRA' });
@@ -93,6 +125,21 @@ router.post('/toggle', authMiddleware, async (req: AuthenticatedRequest, res: Re
 
 // GET /api/lora/status — Get current LoRA state
 router.get('/status', authMiddleware, async (_req: AuthenticatedRequest, res: Response) => {
+  // Return cached local state; sync with backend if needed
+  try {
+    const response = await fetch(`${ACESTEP_API}/v1/lora/status`);
+    if (response.ok) {
+      const data = await response.json() as Partial<typeof loraState>;
+      loraState = {
+        loaded: data.loaded ?? loraState.loaded,
+        active: data.active ?? loraState.active,
+        scale: data.scale ?? loraState.scale,
+        path: data.path ?? loraState.path,
+      };
+    }
+  } catch {
+    // If backend unavailable, return cached state
+  }
   res.json(loraState);
 });
 
