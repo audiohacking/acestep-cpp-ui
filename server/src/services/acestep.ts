@@ -130,9 +130,20 @@ let isProcessingQueue = false;
 // Mode detection
 // ---------------------------------------------------------------------------
 
-function useSpawnMode(): boolean {
-  // Spawn mode requires both ace-qwen3 (LLM) and dit-vae (synthesis) binaries
-  return Boolean(config.acestep.lmBin && config.acestep.ditVaeBin);
+/**
+ * Returns true when the spawn-mode binaries satisfy the requirements for
+ * the given generation parameters.
+ *
+ * - Cover/passthrough (sourceAudioUrl or audioCodes): only dit-vae is needed;
+ *   ace-qwen3 is skipped because the audio codes come from the source audio.
+ * - Text-to-music: both ace-qwen3 (LLM) and dit-vae (synthesis) are required.
+ */
+function useSpawnMode(params?: Pick<GenerationParams, 'sourceAudioUrl' | 'audioCodes'>): boolean {
+  if (!config.acestep.ditVaeBin) return false;
+  // Cover / passthrough: only dit-vae is needed — no LLM step
+  if (params?.sourceAudioUrl || params?.audioCodes) return true;
+  // Text-to-music: need ace-qwen3 too
+  return Boolean(config.acestep.lmBin);
 }
 
 // ---------------------------------------------------------------------------
@@ -259,14 +270,20 @@ async function runViaSpawn(
     if (params.timeSignature)             requestJson.timesignature = params.timeSignature;
     // Passthrough: skip the LLM when audio codes are already provided
     if (params.audioCodes)                requestJson.audio_codes   = params.audioCodes;
+    // Cover/audio-to-audio: strength of the source audio influence on the output
+    if (params.audioCoverStrength !== undefined) requestJson.audio_cover_strength = params.audioCoverStrength;
 
     const requestPath = path.join(tmpDir, 'request.json');
     await writeFile(requestPath, JSON.stringify(requestJson, null, 2));
 
     // ── Step 1: ace-qwen3 — LLM (lyrics + audio codes) ────────────────────
+    // Skipped when:
+    //   • audio_codes are provided (passthrough) — codes are already known
+    //   • sourceAudioUrl is provided (cover/audio-to-audio) — dit-vae derives
+    //     codes directly from the source audio; running ace-qwen3 is not needed
     let enrichedPaths: string[] = [];
 
-    if (!params.audioCodes) {
+    if (!params.audioCodes && !params.sourceAudioUrl) {
       job.stage = 'LLM: generating lyrics and audio codes…';
 
       const lmBin   = config.acestep.lmBin!;
@@ -294,7 +311,8 @@ async function runViaSpawn(
         throw new Error('ace-qwen3 produced no enriched request files');
       }
     } else {
-      // Passthrough: use the original request.json directly (audio_codes present)
+      // Passthrough: use the original request.json directly
+      // (audio codes provided, or source audio supplied for cover/audio-to-audio mode)
       enrichedPaths = [requestPath];
     }
 
@@ -619,7 +637,7 @@ async function processGeneration(
 
   try {
     job.stage = 'Generating music...';
-    if (useSpawnMode()) {
+    if (useSpawnMode(params)) {
       await runViaSpawn(jobId, params, job);
     } else {
       await runViaHttp(jobId, params, job);

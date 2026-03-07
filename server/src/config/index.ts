@@ -13,11 +13,22 @@ const __dirname  = path.dirname(__filename);
 //   release: <bundle>/server/dist/config/ → ../../.. → <bundle>/
 const APP_ROOT = path.resolve(__dirname, '../../..');
 
+// ── Path helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Resolves a path relative to APP_ROOT when it is not already absolute.
+ * This prevents relative paths from .env (e.g. `./models`) being interpreted
+ * relative to the server/ working directory instead of the project root.
+ */
+function resolveFromRoot(p: string): string {
+  return path.isAbsolute(p) ? p : path.resolve(APP_ROOT, p);
+}
+
 // ── Binary resolution ───────────────────────────────────────────────────────
 
 /** Resolves the ace-qwen3 LLM binary path (step 1 of the pipeline). */
 function resolveLmBin(): string {
-  if (process.env.ACE_QWEN3_BIN) return process.env.ACE_QWEN3_BIN;
+  if (process.env.ACE_QWEN3_BIN) return resolveFromRoot(process.env.ACE_QWEN3_BIN);
   for (const name of ['ace-qwen3', 'ace-qwen3.exe']) {
     const p = path.join(APP_ROOT, 'bin', name);
     if (existsSync(p)) return p;
@@ -27,7 +38,7 @@ function resolveLmBin(): string {
 
 /** Resolves the dit-vae binary path (step 2 of the pipeline). */
 function resolveDitVaeBin(): string {
-  if (process.env.DIT_VAE_BIN) return process.env.DIT_VAE_BIN;
+  if (process.env.DIT_VAE_BIN) return resolveFromRoot(process.env.DIT_VAE_BIN);
   for (const name of ['dit-vae', 'dit-vae.exe']) {
     const p = path.join(APP_ROOT, 'bin', name);
     if (existsSync(p)) return p;
@@ -39,13 +50,13 @@ function resolveDitVaeBin(): string {
 
 /** Resolves the models directory. */
 function resolveModelsDir(): string {
-  if (process.env.MODELS_DIR) return process.env.MODELS_DIR;
+  if (process.env.MODELS_DIR) return resolveFromRoot(process.env.MODELS_DIR);
   return path.join(APP_ROOT, 'models');
 }
 
 /** Resolves the DiT model (acestep-v15-turbo-*.gguf). */
 function resolveDitModel(modelsDir: string): string {
-  if (process.env.ACESTEP_MODEL) return process.env.ACESTEP_MODEL;
+  if (process.env.ACESTEP_MODEL) return resolveFromRoot(process.env.ACESTEP_MODEL);
   if (!existsSync(modelsDir)) return '';
 
   const preference = [
@@ -73,7 +84,7 @@ function resolveDitModel(modelsDir: string): string {
 
 /** Resolves the causal LM model (acestep-5Hz-lm-*.gguf). */
 function resolveLmModel(modelsDir: string): string {
-  if (process.env.LM_MODEL) return process.env.LM_MODEL;
+  if (process.env.LM_MODEL) return resolveFromRoot(process.env.LM_MODEL);
   if (!existsSync(modelsDir)) return '';
 
   // Prefer 4B Q8_0, then smaller quantisations, then smaller LM sizes
@@ -103,7 +114,7 @@ function resolveLmModel(modelsDir: string): string {
 
 /** Resolves the text-encoder model (Qwen3-Embedding-*.gguf). */
 function resolveTextEncoderModel(modelsDir: string): string {
-  if (process.env.TEXT_ENCODER_MODEL) return process.env.TEXT_ENCODER_MODEL;
+  if (process.env.TEXT_ENCODER_MODEL) return resolveFromRoot(process.env.TEXT_ENCODER_MODEL);
   if (!existsSync(modelsDir)) return '';
 
   for (const name of [
@@ -125,7 +136,7 @@ function resolveTextEncoderModel(modelsDir: string): string {
 
 /** Resolves the VAE model (vae-BF16.gguf). */
 function resolveVaeModel(modelsDir: string): string {
-  if (process.env.VAE_MODEL) return process.env.VAE_MODEL;
+  if (process.env.VAE_MODEL) return resolveFromRoot(process.env.VAE_MODEL);
   if (!existsSync(modelsDir)) return '';
 
   for (const name of ['vae-BF16.gguf', 'vae-Q8_0.gguf']) {
@@ -174,7 +185,7 @@ export const config = {
 
   // SQLite database
   database: {
-    path: process.env.DATABASE_PATH || path.join(APP_ROOT, 'data', 'acestep.db'),
+    path: resolveFromRoot(process.env.DATABASE_PATH || path.join(APP_ROOT, 'data', 'acestep.db')),
   },
 
   // acestep-cpp — spawn mode uses ace-qwen3 + dit-vae directly.
@@ -204,7 +215,7 @@ export const config = {
 
   storage: {
     provider: 'local' as const,
-    audioDir: process.env.AUDIO_DIR || path.join(APP_ROOT, 'public', 'audio'),
+    audioDir: resolveFromRoot(process.env.AUDIO_DIR || path.join(APP_ROOT, 'public', 'audio')),
   },
 
   jwt: {
