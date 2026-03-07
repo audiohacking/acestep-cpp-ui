@@ -28,19 +28,25 @@ if ! command -v curl &>/dev/null && ! command -v wget &>/dev/null; then
   echo "  sudo apt install curl  OR  brew install curl"
 fi
 
-# ── Check for acestep.cpp binary ─────────────────────────────────────────────
-if [ -n "${ACESTEP_BIN:-}" ] && [ -x "$ACESTEP_BIN" ]; then
+# ── Build acestep.cpp if binaries are not present ────────────────────────────
+ACESTEP_BIN_DIR="${ACESTEP_BIN_DIR:-bin}"
+if [ -x "$ACESTEP_BIN_DIR/ace-qwen3" ] && [ -x "$ACESTEP_BIN_DIR/dit-vae" ]; then
+  echo "acestep.cpp binaries: $ACESTEP_BIN_DIR/ ✓"
+elif [ -n "${ACESTEP_BIN:-}" ] && [ -x "$ACESTEP_BIN" ]; then
   echo "acestep-generate: $ACESTEP_BIN ✓"
 else
   echo ""
-  echo "Note: ACESTEP_BIN is not set."
-  echo "  Build acestep.cpp and set ACESTEP_BIN before generating music:"
+  echo "Building acestep.cpp for your hardware (detects GPU automatically)..."
   echo ""
-  echo "    git clone https://github.com/audiohacking/acestep.cpp"
-  echo "    cmake -S acestep.cpp -B acestep.cpp/build -DCMAKE_BUILD_TYPE=Release"
-  echo "    cmake --build acestep.cpp/build --parallel"
-  echo "    export ACESTEP_BIN=\$(pwd)/acestep.cpp/build/bin/acestep-generate"
-  echo ""
+  bash build.sh || {
+    echo ""
+    echo "  Automatic build failed. You can build manually:"
+    echo "    git clone https://github.com/audiohacking/acestep.cpp"
+    echo "    cmake -S acestep.cpp -B acestep.cpp/build -DCMAKE_BUILD_TYPE=Release"
+    echo "    cmake --build acestep.cpp/build --parallel"
+    echo "  Then set ACESTEP_BIN_DIR=$(pwd)/bin in .env"
+    echo ""
+  }
 fi
 
 # ── Download GGUF models ─────────────────────────────────────────────────────

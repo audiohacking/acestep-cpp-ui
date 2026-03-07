@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ACESTEP_CPP_REPO: https://github.com/ServeurpersoCom/acestep.cpp.git
+  ACESTEP_CPP_REPO: https://github.com/audiohacking/acestep.cpp.git
   NODE_VERSION: "20"
 
 jobs:
@@ -75,132 +75,31 @@ jobs:
           retention-days: 1
 
   # ────────────────────────────────────────────────────────────────────────────
-  # 3. Per-platform: build acestep.cpp, assemble bundle
+  # 3. Per-platform: assemble the bundle with build + model scripts
+  #    acestep.cpp is NOT compiled here — it is compiled on the user's machine
+  #    by build.sh / build.bat on first launch, which detects the actual GPU.
   # ────────────────────────────────────────────────────────────────────────────
   build-platform:
-    name: Build ${{ matrix.label }}
+    name: Bundle ${{ matrix.label }}
     needs: [build-frontend, build-server]
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64 — detect available accelerators at build time
           - label: linux-x64
-            runner: ubuntu-22.04
             os: linux
-
-          # Linux ARM64 — detect available accelerators at build time
           - label: linux-arm64
-            runner: ubuntu-22.04-arm
             os: linux
-
-          # macOS Apple Silicon — Metal + Accelerate BLAS auto-detected by cmake
           - label: macos-arm64
-            runner: macos-14
             os: macos
+          - label: windows-x64
+            os: windows
 
     steps:
       - uses: actions/checkout@v4
-
-      # ── System dependencies ─────────────────────────────────────────────
-      - name: Install build tools (Linux)
-        if: matrix.os == 'linux'
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y cmake ninja-build libssl-dev pkg-config libopenblas-dev
-
-      - name: Install build tools (macOS)
-        if: matrix.os == 'macos'
-        run: brew install cmake ninja
-
-      # ── Clone & build acestep.cpp ───────────────────────────────────────
-      - name: Clone acestep.cpp
-        run: |
-          git clone --depth 1 ${{ env.ACESTEP_CPP_REPO }} acestep.cpp
-          cd acestep.cpp
-          git submodule update --init --recursive --depth 1
-
-      # ── Detect hardware and set cmake flags ──────────────────────────────
-      # Follows the detection approach documented in the acestep.cpp README:
-      #   CUDA (NVIDIA):  -DGGML_CUDA=ON
-      #   ROCm/HIP (AMD): -DGGML_HIP=ON
-      #   Vulkan:         -DGGML_VULKAN=ON
-      #   OpenBLAS (CPU): -DGGML_BLAS=ON
-      #   macOS:          Metal + Accelerate BLAS auto-detected by cmake
-      - name: Detect hardware and set cmake flags
-        id: detect
-        shell: bash
-        run: |
-          FLAGS=""
-          if [[ "$(uname)" == "Darwin" ]]; then
-            echo "Platform: macOS — Metal and Accelerate BLAS auto-detected by cmake"
-          else
-            # CUDA (NVIDIA)
-            if command -v nvcc &>/dev/null || [ -d /usr/local/cuda ] || [ -d /usr/cuda ]; then
-              FLAGS="$FLAGS -DGGML_CUDA=ON"
-              echo "Detected: CUDA"
-            fi
-            # ROCm/HIP (AMD)
-            if command -v hipcc &>/dev/null || [ -d /opt/rocm ]; then
-              FLAGS="$FLAGS -DGGML_HIP=ON"
-              echo "Detected: ROCm/HIP"
-            fi
-            # Vulkan
-            if pkg-config --exists vulkan 2>/dev/null; then
-              FLAGS="$FLAGS -DGGML_VULKAN=ON"
-              echo "Detected: Vulkan"
-            fi
-            # OpenBLAS (recommended for CPU-only machines)
-            if pkg-config --exists openblas 2>/dev/null; then
-              FLAGS="$FLAGS -DGGML_BLAS=ON"
-              echo "Detected: OpenBLAS"
-            fi
-            [ -z "$FLAGS" ] && echo "No accelerator detected — CPU-only build"
-          fi
-          echo "flags=$FLAGS" >> "$GITHUB_OUTPUT"
-          echo "cmake flags: $FLAGS"
-
-      - name: Cache acestep.cpp build artifacts
-        uses: actions/cache@v4
-        with:
-          path: acestep.cpp/build
-          key: acestep-${{ matrix.label }}-${{ hashFiles('acestep.cpp/CMakeLists.txt') }}
-          restore-keys: acestep-${{ matrix.label }}-
-
-      - name: Build acestep.cpp
-        run: |
-          cmake -S acestep.cpp -B acestep.cpp/build \
-            -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            ${{ steps.detect.outputs.flags }}
-          cmake --build acestep.cpp/build --parallel
-
-      # Locate the three generated binaries
-      - name: Locate binaries
-        id: locate-bins
-        shell: bash
-        run: |
-          locate_bin() {
-            local name="$1"
-            local found
-            found=$(find acestep.cpp/build -name "$name" -type f 2>/dev/null | head -1)
-            if [ -n "$found" ]; then
-              echo "Found $name → $found" >&2
-              printf '%s' "$found"
-            else
-              echo "⚠️  $name not found in build tree" >&2
-              printf ''
-            fi
-          }
-
-          LM_BIN=$(locate_bin "ace-qwen3")
-          DIT_VAE_BIN=$(locate_bin "dit-vae")
-          NEURAL_CODEC_BIN=$(locate_bin "neural-codec")
-
-          echo "lm_bin=$LM_BIN"               >> "$GITHUB_OUTPUT"
-          echo "dit_vae_bin=$DIT_VAE_BIN"     >> "$GITHUB_OUTPUT"
-          echo "neural_codec_bin=$NEURAL_CODEC_BIN" >> "$GITHUB_OUTPUT"
 
       # ── Download pre-built UI artifacts ─────────────────────────────────
       - uses: actions/download-artifact@v4
@@ -220,7 +119,7 @@ jobs:
           set -e
           APP=acestep-cpp-ui
           mkdir -p "$APP/bin" "$APP/dist" "$APP/server/dist" "$APP/server/node_modules" \
-                   "$APP/data" "$APP/public/audio" "$APP/logs"
+                   "$APP/data" "$APP/public/audio" "$APP/logs" "$APP/models"
 
           # Node.js server (compiled JS + production node_modules)
           cp -r _release/server-bundle/dist/.          "$APP/server/dist/"
@@ -230,168 +129,235 @@ jobs:
           # React frontend (served by the API server)
           cp -r _release/dist/. "$APP/dist/"
 
-          # acestep.cpp binaries — all three are needed at runtime:
-          #   ace-qwen3:    LLM (generates lyrics + audio codes from caption)
-          #   dit-vae:      DiT + VAE (synthesises audio from audio codes)
-          #   neural-codec: VAE encode/decode (auxiliary)
-          copy_bin() {
-            local name="$1"
-            local src="$2"
-            if [ -f "$src" ]; then
-              cp "$src" "$APP/bin/$name"
-              chmod +x "$APP/bin/$name"
-              echo "✅ Bundled $name"
-            else
-              echo "⚠️  $name not found — bundle will need the binary added manually"
-            fi
-          }
-          copy_bin "ace-qwen3"    "${{ steps.locate-bins.outputs.lm_bin }}"
-          copy_bin "dit-vae"      "${{ steps.locate-bins.outputs.dit_vae_bin }}"
-          copy_bin "neural-codec" "${{ steps.locate-bins.outputs.neural_codec_bin }}"
-
           # .env template
           cp .env.example "$APP/.env.example"
 
-          # start.sh
+          # Build scripts — compile acestep.cpp with GPU detection on first run
+          cp build.sh   "$APP/build.sh"
+          chmod +x      "$APP/build.sh"
+          cp build.bat  "$APP/build.bat"
+
+          # Model download scripts
+          cp models.sh  "$APP/models.sh"
+          chmod +x      "$APP/models.sh"
+          cp models.bat "$APP/models.bat"
+
+          # ── start.sh (Linux / macOS) ──────────────────────────────────────
           cat > "$APP/start.sh" << 'SH'
-          #!/bin/bash
-          # ACE-Step UI — quick start
-          set -e
-          DIR="$(cd "$(dirname "$0")" && pwd)"
-          cd "$DIR"
+#!/bin/bash
+# ACE-Step UI — start
+# On first launch: compiles acestep.cpp for your GPU and downloads base models.
+set -e
+DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$DIR"
 
-          # Load .env if present
-          [ -f .env ] && export $(grep -v '^#' .env | grep -v '^\s*$' | xargs)
+# Load .env if present
+[ -f .env ] && export $(grep -v '^#' .env | grep -v '^\s*$' | xargs)
 
-          # Binaries bundled under bin/
-          : "${ACE_QWEN3_BIN:=$DIR/bin/ace-qwen3}"
-          : "${DIT_VAE_BIN:=$DIR/bin/dit-vae}"
+# ── First-run: compile acestep.cpp ───────────────────────────────────────────
+if [ ! -x "$DIR/bin/ace-qwen3" ] || [ ! -x "$DIR/bin/dit-vae" ]; then
+  echo "═══════════════════════════════════════════════════════"
+  echo "  First run: building acestep.cpp for your hardware"
+  echo "  GPU support (CUDA / ROCm / Vulkan / Metal) is"
+  echo "  detected automatically from your system."
+  echo "  This takes a few minutes and only happens once."
+  echo "═══════════════════════════════════════════════════════"
+  echo ""
+  bash "$DIR/build.sh"
+  echo ""
+fi
 
-          # Models — download with ./models.sh if not present
-          : "${MODELS_DIR:=$DIR/models}"
-          : "${PORT:=3001}"
+# ── First-run: download models ───────────────────────────────────────────────
+: "${MODELS_DIR:=$DIR/models}"
+if ! ls "$MODELS_DIR"/*.gguf &>/dev/null 2>&1; then
+  echo "═══════════════════════════════════════════════════════"
+  echo "  First run: downloading base GGUF models (~8 GB)"
+  echo "  VAE + Text Encoder + LM-4B + DiT-Turbo (Q8_0)"
+  echo "  Requires: curl or wget"
+  echo "═══════════════════════════════════════════════════════"
+  echo ""
+  bash "$DIR/models.sh" --dir "$MODELS_DIR"
+  echo ""
+fi
 
-          mkdir -p logs data public/audio models
+# ── Start the server ─────────────────────────────────────────────────────────
+: "${ACE_QWEN3_BIN:=$DIR/bin/ace-qwen3}"
+: "${DIT_VAE_BIN:=$DIR/bin/dit-vae}"
+: "${PORT:=3001}"
 
-          echo "Starting API server on port $PORT ..."
-          ACE_QWEN3_BIN="$ACE_QWEN3_BIN" \
-          DIT_VAE_BIN="$DIT_VAE_BIN" \
-          MODELS_DIR="$MODELS_DIR" \
-          PORT="$PORT" \
-          DATABASE_PATH="$DIR/data/acestep.db" \
-          AUDIO_DIR="$DIR/public/audio" \
-          FRONTEND_URL="http://localhost:$PORT" \
-            node "$DIR/server/dist/index.js" &
-          NODE_PID=$!
+mkdir -p logs data public/audio
 
-          sleep 2
-          echo ""
-          echo "ACE-Step UI → http://localhost:$PORT"
-          echo ""
-          trap 'kill $NODE_PID 2>/dev/null; exit 0' INT TERM
-          wait $NODE_PID
-          SH
+echo "Starting ACE-Step UI on port $PORT ..."
+ACE_QWEN3_BIN="$ACE_QWEN3_BIN" \
+DIT_VAE_BIN="$DIT_VAE_BIN" \
+MODELS_DIR="$MODELS_DIR" \
+PORT="$PORT" \
+DATABASE_PATH="$DIR/data/acestep.db" \
+AUDIO_DIR="$DIR/public/audio" \
+FRONTEND_URL="http://localhost:$PORT" \
+  node "$DIR/server/dist/index.js" &
+NODE_PID=$!
+
+sleep 2
+echo ""
+echo "ACE-Step UI → http://localhost:$PORT"
+echo ""
+trap 'kill $NODE_PID 2>/dev/null; exit 0' INT TERM
+wait $NODE_PID
+SH
           chmod +x "$APP/start.sh"
 
-          # start.bat (Windows — needs WSL or separate build for the binary)
+          # ── start.bat (Windows) ───────────────────────────────────────────
           cat > "$APP/start.bat" << 'BAT'
-          @echo off
-          setlocal
-          set DIR=%~dp0
-          if "%ACE_QWEN3_BIN%"=="" set ACE_QWEN3_BIN=%DIR%bin\ace-qwen3.exe
-          if "%DIT_VAE_BIN%"==""   set DIT_VAE_BIN=%DIR%bin\dit-vae.exe
-          if "%MODELS_DIR%"==""    set MODELS_DIR=%DIR%models
-          if "%PORT%"==""          set PORT=3001
-          mkdir logs 2>nul & mkdir data 2>nul & mkdir public\audio 2>nul & mkdir models 2>nul
-          set DATABASE_PATH=%DIR%data\acestep.db
-          set AUDIO_DIR=%DIR%public\audio
-          set FRONTEND_URL=http://localhost:%PORT%
-          node "%DIR%server\dist\index.js"
-          BAT
+@echo off
+:: ACE-Step UI — start
+:: On first launch: compiles acestep.cpp for your GPU and downloads base models.
+setlocal EnableDelayedExpansion
+set DIR=%~dp0
+cd /d "%DIR%"
 
-          # Release README
+:: Load .env if present
+if exist ".env" (
+    for /f "usebackq tokens=* delims=" %%l in (".env") do (
+        set line=%%l
+        if not "!line:~0,1!"=="#" if not "!line!"=="" set %%l
+    )
+)
+
+:: First-run: compile acestep.cpp
+if not exist "%DIR%bin\ace-qwen3.exe" (
+    echo ═══════════════════════════════════════════════════════
+    echo   First run: building acestep.cpp for your hardware
+    echo   GPU support ^(CUDA / Vulkan^) is detected automatically.
+    echo   This takes a few minutes and only happens once.
+    echo ═══════════════════════════════════════════════════════
+    echo.
+    call "%DIR%build.bat"
+    if %ERRORLEVEL% NEQ 0 ( echo Build failed. See output above. & pause & exit /b 1 )
+    echo.
+)
+
+:: First-run: download models
+if "%MODELS_DIR%"=="" set MODELS_DIR=%DIR%models
+dir /b "%MODELS_DIR%\*.gguf" >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo ═══════════════════════════════════════════════════════
+    echo   First run: downloading base GGUF models ~8 GB
+    echo   VAE + Text Encoder + LM-4B + DiT-Turbo ^(Q8_0^)
+    echo ═══════════════════════════════════════════════════════
+    echo.
+    call "%DIR%models.bat" --dir "%MODELS_DIR%"
+    echo.
+)
+
+:: Start the server
+if "%ACE_QWEN3_BIN%"=="" set ACE_QWEN3_BIN=%DIR%bin\ace-qwen3.exe
+if "%DIT_VAE_BIN%"==""   set DIT_VAE_BIN=%DIR%bin\dit-vae.exe
+if "%PORT%"==""           set PORT=3001
+mkdir logs 2>nul & mkdir data 2>nul & mkdir public\audio 2>nul
+
+echo Starting ACE-Step UI on port %PORT% ...
+set DATABASE_PATH=%DIR%data\acestep.db
+set AUDIO_DIR=%DIR%public\audio
+set FRONTEND_URL=http://localhost:%PORT%
+node "%DIR%server\dist\index.js"
+BAT
+
+          # ── Release README ────────────────────────────────────────────────
           cat > "$APP/README.md" << 'MD'
-          # ACE-Step UI
+# ACE-Step UI
 
-          Self-contained release bundle — no Python required.  
-          Music generation is powered by [acestep.cpp](https://github.com/ServeurpersoCom/acestep.cpp).
+Self-contained release bundle — no Python required.  
+Music generation is powered by [acestep.cpp](https://github.com/audiohacking/acestep.cpp).
 
-          ## Requirements
+## Requirements
 
-          - **Node.js ≥ 20** (runtime for the API server)
-          - **GGUF model files** — download with `./models.sh` (requires `curl`)
+- **Node.js ≥ 20** — runtime for the API server ([nodejs.org](https://nodejs.org))
+- **cmake + git** — required by `build.sh` / `build.bat` to compile `acestep.cpp`
+- **curl or wget** — required by `models.sh` to download model files
+- **~8 GB free disk space** — for the default `Q8_0` model set
 
-          ## Quick Start
+## Quick Start
 
-          ```bash
-          # 1. Download models (~7.7 GB for Q8_0 defaults)
-          ./models.sh
+```bash
+# Just run start.sh — it handles everything on first launch:
+#   1. Detects your GPU (CUDA / ROCm / Vulkan / Metal) and compiles acestep.cpp
+#   2. Downloads the base GGUF models (~8 GB)
+#   3. Starts the UI on http://localhost:3001
+./start.sh
+```
 
-          # 2. Start the server
-          ./start.sh
-          # → open http://localhost:3001
-          ```
+On Windows:
+```bat
+start.bat
+```
 
-          Or copy `.env.example` → `.env`, set `MODELS_DIR` to your model directory, then run `./start.sh`.
+## GPU Acceleration
 
-          ## Binaries
+`build.sh` / `build.bat` automatically detect your GPU on first launch:
 
-          | Binary | Role |
-          |--------|------|
-          | `bin/ace-qwen3` | LLM — generates lyrics and audio codes from caption |
-          | `bin/dit-vae` | DiT + VAE — synthesises stereo 48 kHz WAV from audio codes |
-          | `bin/neural-codec` | VAE encode/decode (auxiliary) |
+| GPU | Flag used |
+|-----|-----------|
+| NVIDIA (CUDA) | `-DGGML_CUDA=ON` |
+| AMD (ROCm/HIP) | `-DGGML_HIP=ON` |
+| Any (Vulkan) | `-DGGML_VULKAN=ON` |
+| macOS (Metal) | auto-detected by cmake |
+| CPU only | no flags |
 
-          ## Environment Variables
+To force a specific backend, run the build script manually:
+```bash
+./build.sh --cuda    # Force CUDA
+./build.sh --rocm    # Force ROCm/HIP
+./build.sh --vulkan  # Force Vulkan
+./build.sh --cpu     # CPU-only
+```
 
-          | Variable | Default | Description |
-          |----------|---------|-------------|
-          | `ACE_QWEN3_BIN` | `./bin/ace-qwen3` | Path to the ace-qwen3 LLM binary |
-          | `DIT_VAE_BIN` | `./bin/dit-vae` | Path to the dit-vae binary |
-          | `MODELS_DIR` | `./models` | Directory containing GGUF model files |
-          | `PORT` | `3001` | API + UI server port |
-          | `AUDIO_DIR` | `./public/audio` | Where generated audio is stored |
-          | `JWT_SECRET` | built-in | Change for multi-user deployments |
+## Environment Variables
 
-          ## GPU Acceleration
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ACE_QWEN3_BIN` | `./bin/ace-qwen3` | Path to the ace-qwen3 LLM binary |
+| `DIT_VAE_BIN` | `./bin/dit-vae` | Path to the dit-vae binary |
+| `MODELS_DIR` | `./models` | Directory containing GGUF model files |
+| `PORT` | `3001` | API + UI server port |
+| `AUDIO_DIR` | `./public/audio` | Where generated audio is stored |
+| `JWT_SECRET` | built-in | Change for multi-user deployments |
 
-          This bundle is built with auto-detected hardware support.
-          For an explicit GPU build, rebuild `acestep.cpp` from source:
+Copy `.env.example` → `.env` to customise these.
 
-          ```bash
-          # CUDA (Linux/Windows)
-          cmake -S acestep.cpp -B build -DGGML_CUDA=ON && cmake --build build -j$(nproc)
+## Model Management
 
-          # Metal (macOS — auto-detected, nothing extra needed)
-          cmake -S acestep.cpp -B build && cmake --build build -j$(nproc)
+Download models manually (useful for selecting a different quantisation):
+```bash
+./models.sh              # Default: Q8_0 essentials (~8 GB)
+./models.sh --quant Q5_K_M  # Smaller, slightly lower quality
+./models.sh --all        # Every model and quantisation
+```
+MD
 
-          # ROCm/HIP (AMD)
-          cmake -S acestep.cpp -B build -DGGML_HIP=ON && cmake --build build -j$(nproc)
-          ```
-
-          Then replace the binaries in `bin/` with the newly built ones.
-          MD
-
-          echo "Bundle ready:"
-          ls -lh "$APP/bin/" 2>/dev/null || echo "  (no binaries)"
-
-      # ── Strip debug symbols ──────────────────────────────────────────────
-      - name: Strip binary (Linux)
-        if: matrix.os == 'linux'
-        run: strip --strip-unneeded acestep-cpp-ui/bin/* 2>/dev/null || true
-
-      - name: Strip binary (macOS)
-        if: matrix.os == 'macos'
-        run: strip acestep-cpp-ui/bin/* 2>/dev/null || true
+          echo "Bundle assembled for ${{ matrix.label }}:"
+          ls -lh "$APP/"
 
       # ── Package ──────────────────────────────────────────────────────────
-      - name: Create tarball
+      - name: Create archive (tar.gz)
+        if: matrix.os != 'windows'
         shell: bash
         run: |
           TAG="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
           [[ "$TAG" != v* ]] && TAG="${{ github.event.inputs.tag || 'v0.0.0-dev' }}"
           ARCHIVE="acestep-cpp-ui-${TAG}-${{ matrix.label }}.tar.gz"
           tar -czf "$ARCHIVE" acestep-cpp-ui/
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+          ls -lh "$ARCHIVE"
+
+      - name: Create archive (zip — Windows)
+        if: matrix.os == 'windows'
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
+          [[ "$TAG" != v* ]] && TAG="${{ github.event.inputs.tag || 'v0.0.0-dev' }}"
+          ARCHIVE="acestep-cpp-ui-${TAG}-${{ matrix.label }}.zip"
+          zip -qr "$ARCHIVE" acestep-cpp-ui/
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
           ls -lh "$ARCHIVE"
 
@@ -454,25 +420,33 @@ jobs:
             ## ACE-Step UI ${{ steps.tag.outputs.tag }}
 
             Self-contained bundle — **no Python required**.  
-            The Node.js API server spawns `acestep-generate` directly; no extra processes to manage.
+            Music generation is powered by [acestep.cpp](https://github.com/audiohacking/acestep.cpp).
+
+            > **GPU acceleration is built on your machine** — `start.sh` / `start.bat` automatically
+            > detects your GPU (CUDA / ROCm / Vulkan / Metal) and compiles `acestep.cpp` on first launch.
+            > Models are also downloaded automatically on first run.
 
             ### Platforms
             | File | OS | Arch |
             |------|----|------|
-            | `*-linux-x64.tar.gz`  | Linux  | x86_64       |
-            | `*-linux-arm64.tar.gz`| Linux  | ARM64        |
-            | `*-macos-arm64.tar.gz`| macOS  | Apple Silicon|
+            | `*-linux-x64.tar.gz`   | Linux   | x86\_64        |
+            | `*-linux-arm64.tar.gz` | Linux   | ARM64          |
+            | `*-macos-arm64.tar.gz` | macOS   | Apple Silicon  |
+            | `*-windows-x64.zip`    | Windows | x86\_64        |
+
+            ### Requirements
+            - **Node.js ≥ 20** — [nodejs.org](https://nodejs.org)
+            - **cmake + git** — to compile `acestep.cpp` on first launch
+            - **curl or wget** — to download GGUF model files on first launch
 
             ### Quick Start
             ```bash
             tar xzf acestep-cpp-ui-*-linux-x64.tar.gz
             cd acestep-cpp-ui
-            export ACESTEP_MODEL=/path/to/model.gguf
-            ./start.sh          # → http://localhost:3001
+            ./start.sh   # builds acestep.cpp, downloads models, starts UI → http://localhost:3001
             ```
 
-            > **GPU note:** bundles are built CPU-only.  
-            > Replace `bin/acestep-generate` with a CUDA/Metal build for GPU acceleration.
+            On Windows: extract the `.zip` and run `start.bat`.
 
             ### What's Changed
             ${{ steps.changelog.outputs.log }}
