@@ -10,17 +10,7 @@
 
 <p align="center">
   <strong>Native C++ bundle for local AI music generation — with 0% Python</strong><br>
-  <em>Powered by <a href="https://github.com/audiohacking/acestep.cpp">acestep.cpp</a> — the GGUF-native C++ inference engine for ACE-Step 1.5</em>
-</p>
-
-<p align="center">
-  <a href="#-about-this-fork">About</a> •
-  <a href="#-features">Features</a> •
-  <a href="#-requirements">Requirements</a> •
-  <a href="#-installation">Installation</a> •
-  <a href="#-usage">Usage</a> •
-  <a href="#%EF%B8%8F-configuration">Configuration</a> •
-  <a href="#-contributing">Contributing</a>
+  <em>Powered by <a href="https://github.com/ServeurpersoCom/acestep.cpp">acestep.cpp</a> — the GGUF-native C++ inference engine for ACE-Step 1.5</em>
 </p>
 
 ---
