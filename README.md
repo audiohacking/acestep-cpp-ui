@@ -139,15 +139,11 @@ cd acestep-cpp-ui
 # 2. Run setup — builds acestep.cpp, downloads GGUF models, installs Node deps
 ./setup.sh
 
-# 3. Configure paths
-cp .env.example .env
-# Edit .env: set ACESTEP_BIN and ACESTEP_MODEL (setup.sh prints the paths)
-
-# 4. Launch (starts Node.js API server + Vite frontend)
+# 3. Launch — builds the UI and starts a single server for both API + UI
 ./start-all.sh
 ```
 
-Open **http://localhost:5173**
+Open **http://localhost:3001**
 
 ### Windows
 ```batch
@@ -158,15 +154,11 @@ cd acestep-cpp-ui
 REM 2. Run setup — builds acestep.cpp, downloads GGUF models, installs Node deps
 setup.bat
 
-REM 3. Configure paths
-copy .env.example .env
-REM Edit .env: set ACESTEP_BIN and ACESTEP_MODEL
-
-REM 4. Launch (starts Node.js API server + Vite frontend)
+REM 3. Launch
 start-all.bat
 ```
 
-Open **http://localhost:5173**
+Open **http://localhost:3001**
 
 ---
 
@@ -291,21 +283,20 @@ See [⚙️ Configuration](#%EF%B8%8F-configuration) for all options.
 start-all.bat
 ```
 
-This starts the Node.js API server and the Vite frontend in a single command. The Node.js server spawns the `acestep-generate` C++ binary directly — no separate C++ server process needed. PID files are written to `./logs/` for graceful shutdown.
+This builds the React UI and starts a single Node.js server that serves both the API and the compiled frontend. No separate frontend dev server is needed. The PID file is written to `./logs/server.pid` for graceful shutdown.
 
 | Service | URL |
 |---------|-----|
-| UI (frontend) | http://localhost:5173 |
-| API server | http://localhost:3001 |
-| LAN access | http://YOUR_IP:5173 |
+| UI + API | http://localhost:3001 |
+| LAN access | http://YOUR_IP:3001 |
 
 To stop on Linux/macOS:
 ```bash
-kill $(cat logs/backend.pid) $(cat logs/frontend.pid)
+kill $(cat logs/server.pid)
 ```
-On Windows, close the terminal windows that were opened by `start-all.bat`.
+On Windows, close the terminal window opened by `start-all.bat`.
 
-### Manual Launch
+### Manual Launch (development with hot-reload)
 
 **Linux / macOS — backend:**
 ```bash
@@ -321,7 +312,7 @@ npm run dev
 
 ## ⚙️ Configuration
 
-Copy `.env.example` to `.env` and edit as needed:
+Copy `.env.example` to `.env` and edit as needed. Most settings are auto-detected — no editing is required for a local install.
 
 ```env
 # ── Server ────────────────────────────────────────────────────────────────────
@@ -334,22 +325,17 @@ DATABASE_PATH=./data/acestep.db
 # ── Model storage ─────────────────────────────────────────────────────────────
 MODELS_DIR=./models
 
-# ── acestep-cpp: choose ONE mode ──────────────────────────────────────────────
-
-# Mode 1 (recommended): Node.js spawns the binary directly
-ACESTEP_BIN=./bin/acestep-generate
-ACESTEP_MODEL=./models/acestep-v15-turbo-Q8_0.gguf
+# ── acestep-cpp binaries — auto-detected from ./bin/ after ./build.sh ─────────
+# Override only if your binaries live outside ./bin/:
+# ACE_QWEN3_BIN=/path/to/ace-qwen3
+# DIT_VAE_BIN=/path/to/dit-vae
+# ACESTEP_MODEL=/path/to/models/acestep-v15-turbo-Q8_0.gguf  # override DiT model
 
 # Mode 2 (advanced): connect to a separately running acestep-cpp HTTP server
-# ACESTEP_BIN=
 # ACESTEP_API_URL=http://localhost:7860
 
 # ── Storage ───────────────────────────────────────────────────────────────────
 AUDIO_DIR=./public/audio
-
-# ── Frontend ──────────────────────────────────────────────────────────────────
-FRONTEND_URL=http://localhost:5173
-VITE_API_URL=http://localhost:3001
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 JWT_SECRET=ace-step-ui-local-secret
@@ -411,13 +397,13 @@ Full control over every parameter:
 
 | Issue | Solution |
 |-------|----------|
-| **`ACESTEP_BIN` not found** | Run `./build.sh` (or `build.bat`) to compile the C++ engine; check that `./bin/acestep-generate` exists |
+| **No binaries found in `./bin/`** | Run `./build.sh` (or `build.bat`) to compile the C++ engine |
 | **Build fails: cmake not found** | Install cmake: `sudo apt install cmake` (Linux), `brew install cmake` (macOS), or from cmake.org (Windows) |
 | **Build fails: no C++ compiler** | Install build tools: `sudo apt install build-essential` (Linux), Xcode Command Line Tools (macOS), or Visual Studio 2022 with C++ workload (Windows) |
 | **CUDA out of memory** | Use a lower quantization (e.g. `Q4_K_M`), reduce duration, or disable Thinking Mode |
 | **No GPU detected — CPU build** | Pass `--cuda`, `--rocm`, or `--vulkan` to `build.sh` to force a GPU backend |
 | **Songs show 0:00 duration** | Install FFmpeg: `sudo apt install ffmpeg` (Linux) or download from [ffmpeg.org](https://ffmpeg.org) (Windows) |
-| **LAN access not working** | Check firewall allows ports 5173 and 3001 |
+| **LAN access not working** | Check firewall allows port 3001 |
 | **`better-sqlite3` fails to load** | Run `cd server && npm rebuild better-sqlite3` with build tools installed |
 
 ---

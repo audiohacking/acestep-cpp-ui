@@ -68,7 +68,7 @@ fi
 if [ ! -f ".env" ]; then
   echo "Creating .env from .env.example..."
   cp .env.example .env
-  echo "  ✓ .env created — edit it to set ACESTEP_BIN and ACESTEP_MODEL"
+  echo "  ✓ .env created (binaries and models are auto-detected — no edits needed)"
 else
   echo ".env already exists ✓"
 fi
@@ -99,8 +99,11 @@ echo "  Setup Complete!"
 echo "=================================="
 echo ""
 echo "Next steps:"
-echo "  1. Edit .env — set ACESTEP_BIN and ACESTEP_MODEL"
-echo "  2. Run ./start-all.sh"
-echo "  3. Open http://localhost:3001"
-echo "  4. Use the Models tab to download/manage GGUF files"
+echo "  1. Run ./start-all.sh"
+echo "  2. Open http://localhost:3001"
+echo "  3. Use the Models tab to download/manage GGUF files"
+echo "     (or run ./models.sh to download them now)"
+echo ""
+echo "Tip: binaries and models are auto-detected — no .env edits needed"
+echo "     unless you want to override default paths."
 echo ""

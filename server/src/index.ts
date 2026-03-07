@@ -4,6 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { existsSync, readFileSync } from 'fs';
 
 // Load .env from project root (parent of server directory)
 const __filename_init = fileURLToPath(import.meta.url);
@@ -407,6 +408,24 @@ app.use('/api/contact', contactRoutes);
 app.use('/api/reference-tracks', referenceTrackRoutes);
 app.use('/api/lora', loraRoutes);
 app.use('/api/models', modelsRoutes);
+
+// Serve built frontend (production / single-server mode)
+// Falls back gracefully when dist/ hasn't been built yet.
+const DIST_DIR = path.join(__dirname, '../../dist');
+if (existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR));
+  // Pre-load index.html once so the SPA fallback doesn't hit the disk per-request
+  const indexHtml = readFileSync(path.join(DIST_DIR, 'index.html'), 'utf-8');
+  // SPA fallback: serve index.html for all unmatched non-API routes
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/audio/') ||
+        req.path.startsWith('/editor/') || req.path.startsWith('/demucs-web/') ||
+        req.path === '/health') {
+      return next();
+    }
+    res.type('html').send(indexHtml);
+  });
+}
 
 // Error handler
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
