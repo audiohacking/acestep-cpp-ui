@@ -56,7 +56,11 @@ function resolveModelsDir(): string {
 
 /** Resolves the DiT model (acestep-v15-turbo-*.gguf). */
 function resolveDitModel(modelsDir: string): string {
-  if (process.env.ACESTEP_MODEL) return resolveFromRoot(process.env.ACESTEP_MODEL);
+  if (process.env.ACESTEP_MODEL) {
+    const p = resolveFromRoot(process.env.ACESTEP_MODEL);
+    if (existsSync(p)) return p;
+    console.warn(`[config] ACESTEP_MODEL path not found: ${p} — falling back to auto-detection`);
+  }
   if (!existsSync(modelsDir)) return '';
 
   const preference = [

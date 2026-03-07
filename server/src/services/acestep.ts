@@ -170,6 +170,53 @@ export async function checkSpaceHealth(): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
+// Model name → full path resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolves a DiT model name sent by the frontend into an absolute file path.
+ *
+ * The UI only knows model names (e.g. "acestep-v15-turbo-Q8_0" or
+ * "acestep-v15-turbo-shift3"). The backend owns the model directory and is
+ * solely responsible for turning that name into a real path:
+ *
+ *   1. No name supplied → use the default from config (auto-detected or env).
+ *   2. Already an absolute path → pass through unchanged.
+ *   3. Exact filename match: look for "<name>.gguf" in the models dir.
+ *   4. Prefix match: find any gguf whose name starts with "<name>-", preferring
+ *      Q8_0 → Q6_K → Q5_K_M → Q4_K_M → BF16.
+ *   5. Nothing found → fall back to the configured default.
+ */
+function resolveParamDitModel(name: string | undefined): string {
+  if (!name) return config.acestep.ditModel;
+  if (path.isAbsolute(name)) return name;
+
+  const modelsDir = config.models.dir;
+  if (existsSync(modelsDir)) {
+    // Exact filename match (e.g. "acestep-v15-turbo-Q8_0" → "…Q8_0.gguf")
+    const exact = path.join(modelsDir, `${name}.gguf`);
+    if (existsSync(exact)) return exact;
+
+    // Prefix match for variant names without quantization suffix
+    try {
+      const files = readdirSync(modelsDir).filter(
+        f => f.endsWith('.gguf') && !f.endsWith('.part') && f.startsWith(`${name}-`),
+      );
+      if (files.length > 0) {
+        const quants = ['Q8_0', 'Q6_K', 'Q5_K_M', 'Q4_K_M', 'BF16'];
+        for (const q of quants) {
+          const match = files.find(f => f === `${name}-${q}.gguf`);
+          if (match) return path.join(modelsDir, match);
+        }
+        return path.join(modelsDir, files[0]);
+      }
+    } catch { /* ignore read errors */ }
+  }
+
+  return config.acestep.ditModel;
+}
+
+// ---------------------------------------------------------------------------
 // Audio path resolution (for reference/source audio inputs)
 // ---------------------------------------------------------------------------
 
@@ -482,7 +529,7 @@ async function runViaSpawn(
 
     const ditVaeBin          = config.acestep.ditVaeBin!;
     const textEncoderModel   = config.acestep.textEncoderModel;
-    const ditModel           = params.ditModel ? params.ditModel : config.acestep.ditModel;
+    const ditModel           = resolveParamDitModel(params.ditModel);
     const vaeModel           = config.acestep.vaeModel;
 
     if (!textEncoderModel) throw new Error('Text-encoder model not found — run models.sh first');
@@ -622,7 +669,8 @@ function buildHttpRequest(params: GenerationParams): Record<string, unknown> {
 
   if (params.referenceAudioUrl) body.reference_audio = resolveAudioPath(params.referenceAudioUrl);
   if (params.sourceAudioUrl)    body.src_audio        = resolveAudioPath(params.sourceAudioUrl);
-  if (params.ditModel)          body.dit_model        = params.ditModel;
+  const resolvedDitModel = resolveParamDitModel(params.ditModel);
+  if (resolvedDitModel)         body.dit_model        = resolvedDitModel;
 
   // Pass LoRA state as request fields
   if (loraState.loaded && loraState.active && loraState.path) {
