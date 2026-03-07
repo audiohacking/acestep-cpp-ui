@@ -144,196 +144,196 @@ jobs:
 
           # ── start.sh (Linux / macOS) ──────────────────────────────────────
           cat > "$APP/start.sh" << 'SH'
-#!/bin/bash
-# ACE-Step UI — start
-# On first launch: compiles acestep.cpp for your GPU and downloads base models.
-set -e
-DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$DIR"
-
-# Load .env if present
-[ -f .env ] && export $(grep -v '^#' .env | grep -v '^\s*$' | xargs)
-
-# ── First-run: compile acestep.cpp ───────────────────────────────────────────
-if [ ! -x "$DIR/bin/ace-qwen3" ] || [ ! -x "$DIR/bin/dit-vae" ]; then
-  echo "═══════════════════════════════════════════════════════"
-  echo "  First run: building acestep.cpp for your hardware"
-  echo "  GPU support (CUDA / ROCm / Vulkan / Metal) is"
-  echo "  detected automatically from your system."
-  echo "  This takes a few minutes and only happens once."
-  echo "═══════════════════════════════════════════════════════"
-  echo ""
-  bash "$DIR/build.sh"
-  echo ""
-fi
-
-# ── First-run: download models ───────────────────────────────────────────────
-: "${MODELS_DIR:=$DIR/models}"
-if ! ls "$MODELS_DIR"/*.gguf &>/dev/null 2>&1; then
-  echo "═══════════════════════════════════════════════════════"
-  echo "  First run: downloading base GGUF models (~8 GB)"
-  echo "  VAE + Text Encoder + LM-4B + DiT-Turbo (Q8_0)"
-  echo "  Requires: curl or wget"
-  echo "═══════════════════════════════════════════════════════"
-  echo ""
-  bash "$DIR/models.sh" --dir "$MODELS_DIR"
-  echo ""
-fi
-
-# ── Start the server ─────────────────────────────────────────────────────────
-: "${ACE_QWEN3_BIN:=$DIR/bin/ace-qwen3}"
-: "${DIT_VAE_BIN:=$DIR/bin/dit-vae}"
-: "${PORT:=3001}"
-
-mkdir -p logs data public/audio
-
-echo "Starting ACE-Step UI on port $PORT ..."
-ACE_QWEN3_BIN="$ACE_QWEN3_BIN" \
-DIT_VAE_BIN="$DIT_VAE_BIN" \
-MODELS_DIR="$MODELS_DIR" \
-PORT="$PORT" \
-DATABASE_PATH="$DIR/data/acestep.db" \
-AUDIO_DIR="$DIR/public/audio" \
-FRONTEND_URL="http://localhost:$PORT" \
-  node "$DIR/server/dist/index.js" &
-NODE_PID=$!
-
-sleep 2
-echo ""
-echo "ACE-Step UI → http://localhost:$PORT"
-echo ""
-trap 'kill $NODE_PID 2>/dev/null; exit 0' INT TERM
-wait $NODE_PID
-SH
-          chmod +x "$APP/start.sh"
-
-          # ── start.bat (Windows) ───────────────────────────────────────────
-          cat > "$APP/start.bat" << 'BAT'
-@echo off
-:: ACE-Step UI — start
-:: On first launch: compiles acestep.cpp for your GPU and downloads base models.
-setlocal EnableDelayedExpansion
-set DIR=%~dp0
-cd /d "%DIR%"
-
-:: Load .env if present
-if exist ".env" (
-    for /f "usebackq tokens=* delims=" %%l in (".env") do (
-        set line=%%l
-        if not "!line:~0,1!"=="#" if not "!line!"=="" set %%l
-    )
-)
-
-:: First-run: compile acestep.cpp
-if not exist "%DIR%bin\ace-qwen3.exe" (
-    echo ═══════════════════════════════════════════════════════
-    echo   First run: building acestep.cpp for your hardware
-    echo   GPU support ^(CUDA / Vulkan^) is detected automatically.
-    echo   This takes a few minutes and only happens once.
-    echo ═══════════════════════════════════════════════════════
-    echo.
-    call "%DIR%build.bat"
-    if %ERRORLEVEL% NEQ 0 ( echo Build failed. See output above. & pause & exit /b 1 )
-    echo.
-)
-
-:: First-run: download models
-if "%MODELS_DIR%"=="" set MODELS_DIR=%DIR%models
-dir /b "%MODELS_DIR%\*.gguf" >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    echo ═══════════════════════════════════════════════════════
-    echo   First run: downloading base GGUF models ~8 GB
-    echo   VAE + Text Encoder + LM-4B + DiT-Turbo ^(Q8_0^)
-    echo ═══════════════════════════════════════════════════════
-    echo.
-    call "%DIR%models.bat" --dir "%MODELS_DIR%"
-    echo.
-)
-
-:: Start the server
-if "%ACE_QWEN3_BIN%"=="" set ACE_QWEN3_BIN=%DIR%bin\ace-qwen3.exe
-if "%DIT_VAE_BIN%"==""   set DIT_VAE_BIN=%DIR%bin\dit-vae.exe
-if "%PORT%"==""           set PORT=3001
-mkdir logs 2>nul & mkdir data 2>nul & mkdir public\audio 2>nul
-
-echo Starting ACE-Step UI on port %PORT% ...
-set DATABASE_PATH=%DIR%data\acestep.db
-set AUDIO_DIR=%DIR%public\audio
-set FRONTEND_URL=http://localhost:%PORT%
-node "%DIR%server\dist\index.js"
-BAT
-
-          # ── Release README ────────────────────────────────────────────────
-          cat > "$APP/README.md" << 'MD'
-# ACE-Step UI
-
-Self-contained release bundle — no Python required.  
-Music generation is powered by [acestep.cpp](https://github.com/audiohacking/acestep.cpp).
-
-## Requirements
-
-- **Node.js ≥ 20** — runtime for the API server ([nodejs.org](https://nodejs.org))
-- **cmake + git** — required by `build.sh` / `build.bat` to compile `acestep.cpp`
-- **curl or wget** — required by `models.sh` to download model files
-- **~8 GB free disk space** — for the default `Q8_0` model set
-
-## Quick Start
-
-```bash
-# Just run start.sh — it handles everything on first launch:
-#   1. Detects your GPU (CUDA / ROCm / Vulkan / Metal) and compiles acestep.cpp
-#   2. Downloads the base GGUF models (~8 GB)
-#   3. Starts the UI on http://localhost:3001
-./start.sh
-```
-
-On Windows:
-```bat
-start.bat
-```
-
-## GPU Acceleration
-
-`build.sh` / `build.bat` automatically detect your GPU on first launch:
-
-| GPU | Flag used |
-|-----|-----------|
-| NVIDIA (CUDA) | `-DGGML_CUDA=ON` |
-| AMD (ROCm/HIP) | `-DGGML_HIP=ON` |
-| Any (Vulkan) | `-DGGML_VULKAN=ON` |
-| macOS (Metal) | auto-detected by cmake |
-| CPU only | no flags |
-
-To force a specific backend, run the build script manually:
-```bash
-./build.sh --cuda    # Force CUDA
-./build.sh --rocm    # Force ROCm/HIP
-./build.sh --vulkan  # Force Vulkan
-./build.sh --cpu     # CPU-only
-```
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ACE_QWEN3_BIN` | `./bin/ace-qwen3` | Path to the ace-qwen3 LLM binary |
-| `DIT_VAE_BIN` | `./bin/dit-vae` | Path to the dit-vae binary |
-| `MODELS_DIR` | `./models` | Directory containing GGUF model files |
-| `PORT` | `3001` | API + UI server port |
-| `AUDIO_DIR` | `./public/audio` | Where generated audio is stored |
-| `JWT_SECRET` | built-in | Change for multi-user deployments |
-
-Copy `.env.example` → `.env` to customise these.
-
-## Model Management
-
-Download models manually (useful for selecting a different quantisation):
-```bash
-./models.sh              # Default: Q8_0 essentials (~8 GB)
-./models.sh --quant Q5_K_M  # Smaller, slightly lower quality
-./models.sh --all        # Every model and quantisation
-```
-MD
+          #!/bin/bash
+          # ACE-Step UI — start
+          # On first launch: compiles acestep.cpp for your GPU and downloads base models.
+          set -e
+          DIR="$(cd "$(dirname "$0")" && pwd)"
+          cd "$DIR"
+          
+          # Load .env if present
+          [ -f .env ] && export $(grep -v '^#' .env | grep -v '^\s*$' | xargs)
+          
+          # ── First-run: compile acestep.cpp ───────────────────────────────────────────
+          if [ ! -x "$DIR/bin/ace-qwen3" ] || [ ! -x "$DIR/bin/dit-vae" ]; then
+            echo "═══════════════════════════════════════════════════════"
+            echo "  First run: building acestep.cpp for your hardware"
+            echo "  GPU support (CUDA / ROCm / Vulkan / Metal) is"
+            echo "  detected automatically from your system."
+            echo "  This takes a few minutes and only happens once."
+            echo "═══════════════════════════════════════════════════════"
+            echo ""
+            bash "$DIR/build.sh"
+            echo ""
+          fi
+          
+          # ── First-run: download models ───────────────────────────────────────────────
+          : "${MODELS_DIR:=$DIR/models}"
+          if ! ls "$MODELS_DIR"/*.gguf &>/dev/null 2>&1; then
+            echo "═══════════════════════════════════════════════════════"
+            echo "  First run: downloading base GGUF models (~8 GB)"
+            echo "  VAE + Text Encoder + LM-4B + DiT-Turbo (Q8_0)"
+            echo "  Requires: curl or wget"
+            echo "═══════════════════════════════════════════════════════"
+            echo ""
+            bash "$DIR/models.sh" --dir "$MODELS_DIR"
+            echo ""
+          fi
+          
+          # ── Start the server ─────────────────────────────────────────────────────────
+          : "${ACE_QWEN3_BIN:=$DIR/bin/ace-qwen3}"
+          : "${DIT_VAE_BIN:=$DIR/bin/dit-vae}"
+          : "${PORT:=3001}"
+          
+          mkdir -p logs data public/audio
+          
+          echo "Starting ACE-Step UI on port $PORT ..."
+          ACE_QWEN3_BIN="$ACE_QWEN3_BIN" \
+          DIT_VAE_BIN="$DIT_VAE_BIN" \
+          MODELS_DIR="$MODELS_DIR" \
+          PORT="$PORT" \
+          DATABASE_PATH="$DIR/data/acestep.db" \
+          AUDIO_DIR="$DIR/public/audio" \
+          FRONTEND_URL="http://localhost:$PORT" \
+            node "$DIR/server/dist/index.js" &
+          NODE_PID=$!
+          
+          sleep 2
+          echo ""
+          echo "ACE-Step UI → http://localhost:$PORT"
+          echo ""
+          trap 'kill $NODE_PID 2>/dev/null; exit 0' INT TERM
+          wait $NODE_PID
+          SH
+                    chmod +x "$APP/start.sh"
+          
+                    # ── start.bat (Windows) ───────────────────────────────────────────
+                    cat > "$APP/start.bat" << 'BAT'
+          @echo off
+          :: ACE-Step UI — start
+          :: On first launch: compiles acestep.cpp for your GPU and downloads base models.
+          setlocal EnableDelayedExpansion
+          set DIR=%~dp0
+          cd /d "%DIR%"
+          
+          :: Load .env if present
+          if exist ".env" (
+              for /f "usebackq tokens=* delims=" %%l in (".env") do (
+                  set line=%%l
+                  if not "!line:~0,1!"=="#" if not "!line!"=="" set %%l
+              )
+          )
+          
+          :: First-run: compile acestep.cpp
+          if not exist "%DIR%bin\ace-qwen3.exe" (
+              echo ═══════════════════════════════════════════════════════
+              echo   First run: building acestep.cpp for your hardware
+              echo   GPU support ^(CUDA / Vulkan^) is detected automatically.
+              echo   This takes a few minutes and only happens once.
+              echo ═══════════════════════════════════════════════════════
+              echo.
+              call "%DIR%build.bat"
+              if %ERRORLEVEL% NEQ 0 ( echo Build failed. See output above. & pause & exit /b 1 )
+              echo.
+          )
+          
+          :: First-run: download models
+          if "%MODELS_DIR%"=="" set MODELS_DIR=%DIR%models
+          dir /b "%MODELS_DIR%\*.gguf" >nul 2>&1
+          if %ERRORLEVEL% NEQ 0 (
+              echo ═══════════════════════════════════════════════════════
+              echo   First run: downloading base GGUF models ~8 GB
+              echo   VAE + Text Encoder + LM-4B + DiT-Turbo ^(Q8_0^)
+              echo ═══════════════════════════════════════════════════════
+              echo.
+              call "%DIR%models.bat" --dir "%MODELS_DIR%"
+              echo.
+          )
+          
+          :: Start the server
+          if "%ACE_QWEN3_BIN%"=="" set ACE_QWEN3_BIN=%DIR%bin\ace-qwen3.exe
+          if "%DIT_VAE_BIN%"==""   set DIT_VAE_BIN=%DIR%bin\dit-vae.exe
+          if "%PORT%"==""           set PORT=3001
+          mkdir logs 2>nul & mkdir data 2>nul & mkdir public\audio 2>nul
+          
+          echo Starting ACE-Step UI on port %PORT% ...
+          set DATABASE_PATH=%DIR%data\acestep.db
+          set AUDIO_DIR=%DIR%public\audio
+          set FRONTEND_URL=http://localhost:%PORT%
+          node "%DIR%server\dist\index.js"
+          BAT
+          
+                    # ── Release README ────────────────────────────────────────────────
+                    cat > "$APP/README.md" << 'MD'
+          # ACE-Step UI
+          
+          Self-contained release bundle — no Python required.  
+          Music generation is powered by [acestep.cpp](https://github.com/audiohacking/acestep.cpp).
+          
+          ## Requirements
+          
+          - **Node.js ≥ 20** — runtime for the API server ([nodejs.org](https://nodejs.org))
+          - **cmake + git** — required by `build.sh` / `build.bat` to compile `acestep.cpp`
+          - **curl or wget** — required by `models.sh` to download model files
+          - **~8 GB free disk space** — for the default `Q8_0` model set
+          
+          ## Quick Start
+          
+          ```bash
+          # Just run start.sh — it handles everything on first launch:
+          #   1. Detects your GPU (CUDA / ROCm / Vulkan / Metal) and compiles acestep.cpp
+          #   2. Downloads the base GGUF models (~8 GB)
+          #   3. Starts the UI on http://localhost:3001
+          ./start.sh
+          ```
+          
+          On Windows:
+          ```bat
+          start.bat
+          ```
+          
+          ## GPU Acceleration
+          
+          `build.sh` / `build.bat` automatically detect your GPU on first launch:
+          
+          | GPU | Flag used |
+          |-----|-----------|
+          | NVIDIA (CUDA) | `-DGGML_CUDA=ON` |
+          | AMD (ROCm/HIP) | `-DGGML_HIP=ON` |
+          | Any (Vulkan) | `-DGGML_VULKAN=ON` |
+          | macOS (Metal) | auto-detected by cmake |
+          | CPU only | no flags |
+          
+          To force a specific backend, run the build script manually:
+          ```bash
+          ./build.sh --cuda    # Force CUDA
+          ./build.sh --rocm    # Force ROCm/HIP
+          ./build.sh --vulkan  # Force Vulkan
+          ./build.sh --cpu     # CPU-only
+          ```
+          
+          ## Environment Variables
+          
+          | Variable | Default | Description |
+          |----------|---------|-------------|
+          | `ACE_QWEN3_BIN` | `./bin/ace-qwen3` | Path to the ace-qwen3 LLM binary |
+          | `DIT_VAE_BIN` | `./bin/dit-vae` | Path to the dit-vae binary |
+          | `MODELS_DIR` | `./models` | Directory containing GGUF model files |
+          | `PORT` | `3001` | API + UI server port |
+          | `AUDIO_DIR` | `./public/audio` | Where generated audio is stored |
+          | `JWT_SECRET` | built-in | Change for multi-user deployments |
+          
+          Copy `.env.example` → `.env` to customise these.
+          
+          ## Model Management
+          
+          Download models manually (useful for selecting a different quantisation):
+          ```bash
+          ./models.sh              # Default: Q8_0 essentials (~8 GB)
+          ./models.sh --quant Q5_K_M  # Smaller, slightly lower quality
+          ./models.sh --all        # Every model and quantisation
+          ```
+          MD
 
           echo "Bundle assembled for ${{ matrix.label }}:"
           ls -lh "$APP/"
