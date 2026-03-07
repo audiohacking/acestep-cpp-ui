@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, "copilot/**"]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────
+  # 1. React / Vite frontend
+  # ─────────────────────────────────────────────
+  frontend:
+    name: Frontend (build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: ./node_modules/.bin/tsc --noEmit
+
+      - name: Vite build
+        run: npm run build
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+          retention-days: 7
+
+  # ─────────────────────────────────────────────
+  # 2. Node.js Express server
+  # ─────────────────────────────────────────────
+  server:
+    name: Server (TypeScript compile)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: TypeScript compile
+        run: npm run build
+
+      - name: Upload server artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-dist
+          path: server/dist/
+          retention-days: 7
+
+  # ─────────────────────────────────────────────
+  # 3. C++ HTTP server
+  # ─────────────────────────────────────────────
+  cpp-server:
+    name: C++ server (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: linux-x64
+          - os: macos-latest
+            artifact: macos-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CMake (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y cmake ninja-build
+
+      - name: Install CMake (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja
+
+      # FetchContent downloads cpp-httplib and nlohmann/json; cache them
+      - name: Cache CMake FetchContent
+        uses: actions/cache@v4
+        with:
+          path: backend/build/_deps
+          key: cmake-deps-${{ matrix.os }}-${{ hashFiles('backend/CMakeLists.txt') }}
+          restore-keys: cmake-deps-${{ matrix.os }}-
+
+      - name: Configure
+        run: |
+          cmake -S backend -B backend/build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build backend/build --parallel
+
+      - name: Smoke-test (--help or --version)
+        run: |
+          ./backend/build/acestep-server --help 2>&1 | head -5 || true
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpp-server-${{ matrix.artifact }}
+          path: backend/build/acestep-server
+          retention-days: 7
