@@ -1,14 +1,13 @@
 @echo off
-REM ACE-Step UI Complete Startup Script for Windows
-REM Starts ACE-Step API + Backend + Frontend
+REM ACE-Step UI — build frontend and start the unified server (Windows)
 setlocal
 
 echo ==================================
-echo   ACE-Step Complete Startup
+echo   ACE-Step UI
 echo ==================================
 echo.
 
-REM Check if node_modules exists
+REM Check dependencies
 if not exist "node_modules" (
     echo Error: UI dependencies not installed!
     echo Please run setup.bat first.
@@ -23,90 +22,49 @@ if not exist "server\node_modules" (
     exit /b 1
 )
 
-REM Get ACE-Step path from environment or use default
-if "%ACESTEP_PATH%"=="" (
-    set ACESTEP_PATH=..\ACE-Step-1.5
+REM Binary auto-detection hint
+if exist "bin\ace-qwen3.exe" (
+    echo acestep.cpp binaries: bin\ OK
+) else (
+    echo Note: No acestep.cpp binaries found in bin\
+    echo   Run build.bat to build them, or set ACESTEP_BIN_DIR in .env
+    echo   The UI will still start; music generation needs the binaries.
+    echo.
 )
 
-REM Check if ACE-Step exists
-if not exist "%ACESTEP_PATH%" (
-    echo.
-    echo Warning: ACE-Step not found at %ACESTEP_PATH%
-    echo.
-    echo Please set ACESTEP_PATH or place ACE-Step-1.5 next to ace-step-ui
-    echo Example: set ACESTEP_PATH=C:\ACE-Step-1.5
-    echo.
+REM Build frontend
+echo Building frontend...
+call npm run build
+if %ERRORLEVEL% NEQ 0 (
+    echo Error: frontend build failed.
     pause
     exit /b 1
 )
-
-REM Detect ACE-Step installation type
-set API_COMMAND=
-if exist "%ACESTEP_PATH%\python_embeded\python.exe" (
-    echo [+] Detected Windows Portable Package
-    set API_COMMAND=python_embeded\python acestep\api_server.py
-) else (
-    echo [+] Detected Standard Installation
-    set API_COMMAND=uv run acestep-api --port 8001
-)
-
-REM Get local IP for LAN access
-for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
-    for /f "tokens=1" %%b in ("%%a") do (
-        set LOCAL_IP=%%b
-    )
-)
-
-echo.
-echo ==================================
-echo   Starting All Services...
-echo ==================================
+echo   Frontend built OK
 echo.
 
-REM Start ACE-Step API in new window
-echo [1/3] Starting ACE-Step API server...
-start "ACE-Step API Server" cmd /k "cd /d "%ACESTEP_PATH%" && %API_COMMAND%"
+REM Start unified server in new window
+echo Starting server...
+start "ACE-Step UI" cmd /k "cd /d "%~dp0server" && npm run dev"
 
-REM Wait for API to start
-echo Waiting for API to initialize...
+REM Wait for server to start
 timeout /t 5 /nobreak >nul
 
-REM Start backend in new window
-echo [2/3] Starting backend server...
-start "ACE-Step UI Backend" cmd /k "cd /d "%~dp0server" && npm run dev"
-
-REM Wait for backend to start
-echo Waiting for backend to start...
-timeout /t 3 /nobreak >nul
-
-REM Start frontend in new window
-echo [3/3] Starting frontend...
-start "ACE-Step UI Frontend" cmd /k "cd /d "%~dp0" && npm run dev"
-
-REM Wait a moment
-timeout /t 2 /nobreak >nul
-
 echo.
 echo ==================================
-echo   All Services Running!
+echo   ACE-Step UI running!
 echo ==================================
 echo.
-echo   ACE-Step API: http://localhost:8001
-echo   Backend:      http://localhost:3001
-echo   Frontend:     http://localhost:3000
+echo   UI + API : http://localhost:3001
 echo.
-if defined LOCAL_IP (
-    echo   LAN Access:   http://%LOCAL_IP%:3000
-    echo.
-)
-echo   Close the terminal windows to stop all services.
+echo   Close the server window to stop.
 echo.
 echo ==================================
 echo.
 echo Opening browser...
-timeout /t 3 /nobreak >nul
-start http://localhost:3000
+timeout /t 2 /nobreak >nul
+start http://localhost:3001
 
 echo.
-echo Press any key to close this window (services will keep running)
+echo Press any key to close this window (server keeps running)
 pause >nul

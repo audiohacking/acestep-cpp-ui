@@ -1,6 +1,6 @@
 #!/bin/bash
-# ACE-Step UI — start everything
-# The Node.js server spawns `acestep-generate` directly; no separate C++ server needed.
+# ACE-Step UI — build frontend and start the unified server
+# The Node.js server serves both the API and the compiled React UI.
 set -e
 
 echo "=================================="
@@ -19,18 +19,31 @@ if [ -f ".env" ]; then
   export $(grep -v '^#' .env | grep -v '^\s*$' | xargs)
 fi
 
-if [ -z "$ACESTEP_BIN" ] && [ -z "$ACESTEP_API_URL" ]; then
-  echo "Warning: neither ACESTEP_BIN nor ACESTEP_API_URL is set."
-  echo "  Set ACESTEP_BIN=/path/to/acestep-generate in .env to enable music generation."
+# ── Binary auto-detection hint ────────────────────────────────────────────────
+BIN_DIR="${ACESTEP_BIN_DIR:-bin}"
+if [ -x "$BIN_DIR/ace-qwen3" ] && [ -x "$BIN_DIR/dit-vae" ]; then
+  echo "acestep.cpp binaries: $BIN_DIR/ ✓"
+elif [ -n "${ACE_QWEN3_BIN:-}" ] && [ -x "${ACE_QWEN3_BIN}" ]; then
+  echo "ace-qwen3: $ACE_QWEN3_BIN ✓"
+elif [ -n "${ACESTEP_BIN:-}" ] && [ -x "${ACESTEP_BIN}" ]; then
+  # Legacy single-binary mode — still accepted
+  echo "acestep-generate: $ACESTEP_BIN ✓"
+else
+  echo "Note: No acestep.cpp binaries found in $BIN_DIR/."
+  echo "  Run ./build.sh to build them, or set ACESTEP_BIN_DIR in .env."
+  echo "  The UI will still start; music generation needs the binaries."
   echo ""
 fi
 
-if [ -n "$ACESTEP_BIN" ] && [ ! -x "$ACESTEP_BIN" ]; then
-  echo "Warning: ACESTEP_BIN=$ACESTEP_BIN does not exist or is not executable."
-  echo ""
-fi
+mkdir -p data public/audio logs
 
-mkdir -p logs data public/audio
+# ── Build frontend ────────────────────────────────────────────────────────────
+echo "Building frontend..."
+npm run build > logs/build.log 2>&1 && echo "  Frontend built ✓" || {
+  echo "Error: frontend build failed. Check logs/build.log"
+  tail -20 logs/build.log
+  exit 1
+}
 
 # ── Optional: get LAN IP for convenience ─────────────────────────────────────
 LOCAL_IP=""
@@ -40,59 +53,44 @@ elif command -v ifconfig &>/dev/null; then
   LOCAL_IP=$(ifconfig | awk '/inet / && !/127.0.0.1/{print $2}' | head -1)
 fi
 
-# ── 1. Node.js API server ─────────────────────────────────────────────────────
-echo "[1/2] Starting Node.js API server..."
+# ── Start unified server ──────────────────────────────────────────────────────
+echo "Starting server..."
 cd server
-npm run dev > ../logs/backend.log 2>&1 &
-BACKEND_PID=$!
+npm run dev > ../logs/server.log 2>&1 &
+SERVER_PID=$!
 cd ..
-echo "      PID: $BACKEND_PID"
+echo "  PID: $SERVER_PID"
 
 sleep 3
-if ! kill -0 $BACKEND_PID 2>/dev/null; then
-  echo "Error: API server failed to start. Check logs/backend.log"
-  tail -20 logs/backend.log
+if ! kill -0 $SERVER_PID 2>/dev/null; then
+  echo "Error: server failed to start. Check logs/server.log"
+  tail -20 logs/server.log
   exit 1
 fi
 
-# ── 2. Vite frontend (development) ───────────────────────────────────────────
-echo "[2/2] Starting Vite frontend..."
-npm run dev > logs/frontend.log 2>&1 &
-FRONTEND_PID=$!
-echo "      PID: $FRONTEND_PID"
-
-sleep 2
-if ! kill -0 $FRONTEND_PID 2>/dev/null; then
-  echo "Error: Frontend failed to start. Check logs/frontend.log"
-  kill $BACKEND_PID 2>/dev/null
-  exit 1
-fi
-
-echo "$BACKEND_PID"  > logs/backend.pid
-echo "$FRONTEND_PID" > logs/frontend.pid
+echo "$SERVER_PID" > logs/server.pid
 
 echo ""
 echo "=================================="
-echo "  All services running!"
+echo "  ACE-Step UI running!"
 echo "=================================="
 echo ""
-echo "  API server : http://localhost:${PORT:-3001}"
-echo "  UI (dev)   : http://localhost:5173"
+echo "  UI + API : http://localhost:${PORT:-3001}"
 if [ -n "$LOCAL_IP" ]; then
-  echo "  LAN access : http://$LOCAL_IP:5173"
+  echo "  LAN      : http://$LOCAL_IP:${PORT:-3001}"
 fi
 echo ""
-echo "  Logs: ./logs/"
-echo "  Stop: kill \$(cat logs/backend.pid) \$(cat logs/frontend.pid)"
+echo "  Logs: ./logs/server.log"
+echo "  Stop: kill \$(cat logs/server.pid)"
 echo "=================================="
 echo ""
 
 # Open browser
 if command -v xdg-open &>/dev/null; then
-  xdg-open http://localhost:5173 &>/dev/null &
+  xdg-open "http://localhost:${PORT:-3001}" &>/dev/null &
 elif command -v open &>/dev/null; then
-  open http://localhost:5173 &>/dev/null &
+  open "http://localhost:${PORT:-3001}" &>/dev/null &
 fi
 
-trap 'echo ""; echo "Stopping..."; kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; echo "Stopped."; exit 0' INT TERM
+trap 'echo ""; echo "Stopping..."; kill $SERVER_PID 2>/dev/null; echo "Stopped."; exit 0' INT TERM
 wait

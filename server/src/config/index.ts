@@ -8,11 +8,10 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
-// App root = two levels above server/dist/ in both dev (server/src/) and
-// release bundle (server/dist/) layouts:
-//   dev:     <repo>/server/src/  → ../.. → <repo>/
-//   release: <bundle>/server/dist/ → ../.. → <bundle>/
-const APP_ROOT = path.resolve(__dirname, '../..');
+// App root = three levels above this file in both dev and release layouts:
+//   dev:     <repo>/server/src/config/ → ../../.. → <repo>/
+//   release: <bundle>/server/dist/config/ → ../../.. → <bundle>/
+const APP_ROOT = path.resolve(__dirname, '../../..');
 
 // ── Binary resolution ───────────────────────────────────────────────────────
 
@@ -167,8 +166,10 @@ else                           console.log('[config] DiT model:      none (run m
 if (resolvedVaeModel)          console.log(`[config] VAE model:      ${resolvedVaeModel}`);
 else                           console.log('[config] VAE model:      none (run models.sh)');
 
+const resolvedPort = parseInt(process.env.PORT || '3001', 10);
+
 export const config = {
-  port:    parseInt(process.env.PORT || '3001', 10),
+  port:    resolvedPort,
   nodeEnv: process.env.NODE_ENV || 'development',
 
   // SQLite database
@@ -199,7 +200,7 @@ export const config = {
   // Pexels (optional)
   pexels: { apiKey: process.env.PEXELS_API_KEY || '' },
 
-  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
+  frontendUrl: process.env.FRONTEND_URL || `http://localhost:${resolvedPort}`,
 
   storage: {
     provider: 'local' as const,
