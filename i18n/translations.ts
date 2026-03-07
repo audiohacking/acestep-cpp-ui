@@ -385,6 +385,22 @@ export const translations = {
     coverTask: 'Cover',
     repaintTask: 'Repaint',
     
+    // Repaint mode
+    repaintMode: 'Repaint',
+    coverMode: 'Cover',
+    repaintModeDescription: 'Regenerate a time region while preserving the rest',
+    coverModeDescription: 'Transform an existing track into a new style',
+    repaintStart: 'Start (s)',
+    repaintEnd: 'End (s)',
+    repaintStartPlaceholder: '0',
+    repaintEndPlaceholder: 'end of track',
+    sftModelRequired: 'Repaint requires the SFT model',
+    sftModelDownloading: 'Downloading SFT model…',
+    sftModelReady: 'SFT model ready',
+    sftModelNotFound: 'SFT model not found — go to Models to download it',
+    sftModelSwitched: 'Switched to SFT model for repaint',
+    autoSwitchedToSft: 'Auto-switched to SFT model (required for repaint)',
+    
     // Search Page
     searchSongsPlaceholder: 'Search for songs, playlists, creators, or genres',
     songsMatching: 'Songs matching',
@@ -907,6 +923,22 @@ export const translations = {
     audio2audio: '音频 → 音频',
     coverTask: '翻唱',
     repaintTask: '重绘',
+    
+    // Repaint mode
+    repaintMode: '重绘',
+    coverMode: '翻唱',
+    repaintModeDescription: '重新生成时间区域，保留其余部分',
+    coverModeDescription: '将现有曲目转换为新风格',
+    repaintStart: '开始（秒）',
+    repaintEnd: '结束（秒）',
+    repaintStartPlaceholder: '0',
+    repaintEndPlaceholder: '轨道结束',
+    sftModelRequired: '重绘需要 SFT 模型',
+    sftModelDownloading: '正在下载 SFT 模型…',
+    sftModelReady: 'SFT 模型就绪',
+    sftModelNotFound: '未找到 SFT 模型 — 前往模型页面下载',
+    sftModelSwitched: '已切换到 SFT 模型用于重绘',
+    autoSwitchedToSft: '已自动切换到 SFT 模型（重绘所需）',
     
     // Search Page
     searchSongsPlaceholder: '搜索歌曲、播放列表、创作者或风格',
@@ -1431,6 +1463,22 @@ export const translations = {
     coverTask: 'カバー',
     repaintTask: 'リペイント',
     
+    // Repaint mode
+    repaintMode: 'リペイント',
+    coverMode: 'カバー',
+    repaintModeDescription: '残りを保持しながら時間領域を再生成',
+    coverModeDescription: '既存のトラックを新しいスタイルに変換',
+    repaintStart: '開始（秒）',
+    repaintEnd: '終了（秒）',
+    repaintStartPlaceholder: '0',
+    repaintEndPlaceholder: 'トラック終端',
+    sftModelRequired: 'リペイントには SFT モデルが必要',
+    sftModelDownloading: 'SFT モデルをダウンロード中…',
+    sftModelReady: 'SFT モデル準備完了',
+    sftModelNotFound: 'SFT モデルが見つかりません — モデルページでダウンロード',
+    sftModelSwitched: 'リペイント用に SFT モデルに切り替えました',
+    autoSwitchedToSft: 'SFT モデルに自動切り替え（リペイントに必要）',
+    
     // Search Page
     searchSongsPlaceholder: '曲、プレイリスト、クリエイター、スタイルを検索',
     songsMatching: '一致する曲',
@@ -1953,6 +2001,22 @@ export const translations = {
     audio2audio: '오디오 → 오디오',
     coverTask: '커버',
     repaintTask: '리페인트',
+    
+    // Repaint mode
+    repaintMode: '리페인트',
+    coverMode: '커버',
+    repaintModeDescription: '나머지를 유지하면서 시간 영역을 재생성',
+    coverModeDescription: '기존 트랙을 새로운 스타일로 변환',
+    repaintStart: '시작 (초)',
+    repaintEnd: '종료 (초)',
+    repaintStartPlaceholder: '0',
+    repaintEndPlaceholder: '트랙 끝',
+    sftModelRequired: '리페인트에는 SFT 모델이 필요합니다',
+    sftModelDownloading: 'SFT 모델 다운로드 중…',
+    sftModelReady: 'SFT 모델 준비 완료',
+    sftModelNotFound: 'SFT 모델을 찾을 수 없습니다 — 모델 페이지에서 다운로드하세요',
+    sftModelSwitched: '리페인트를 위해 SFT 모델로 전환했습니다',
+    autoSwitchedToSft: 'SFT 모델로 자동 전환됨 (리페인트에 필요)',
     
     // Search Page
     searchSongsPlaceholder: '곡, 재생목록, 제작자 또는 스타일 검색',
