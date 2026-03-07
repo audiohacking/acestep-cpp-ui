@@ -5,7 +5,11 @@
 <h1 align="center">acestep-cpp-ui</h1>
 
 <p align="center">
-  <strong>Native C++ bundle for local AI music generation — no Python required</strong><br>
+  <img width="800" height="431" alt="image" src="https://github.com/user-attachments/assets/89825300-2cef-4914-9ba7-46234ffe4084" />
+</p>
+
+<p align="center">
+  <strong>Native C++ bundle for local AI music generation — with 0% Python</strong><br>
   <em>Powered by <a href="https://github.com/audiohacking/acestep.cpp">acestep.cpp</a> — the GGUF-native C++ inference engine for ACE-Step 1.5</em>
 </p>
 
@@ -19,29 +23,11 @@
   <a href="#-contributing">Contributing</a>
 </p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react" alt="React">
-  <img src="https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript" alt="TypeScript">
-  <img src="https://img.shields.io/badge/TailwindCSS-3.x-06B6D4?style=flat-square&logo=tailwindcss" alt="TailwindCSS">
-  <img src="https://img.shields.io/badge/SQLite-Local_First-003B57?style=flat-square&logo=sqlite" alt="SQLite">
-  <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License">
-</p>
-
 ---
 
 ## 🎯 About This Fork
 
-**acestep-cpp-ui** is a fork of the original ace-step-ui project that replaces the Python/Gradio backend with a native C++ inference engine — [acestep.cpp](https://github.com/audiohacking/acestep.cpp).
-
-| | Original (Python) | This Fork (C++) |
-|--|--|--|
-| **Backend engine** | Python + Gradio | Native C++ binary |
-| **Model format** | HuggingFace safetensors | GGUF (quantized) |
-| **GPU support** | CUDA (NVIDIA) | CUDA, ROCm/HIP (AMD), Vulkan, Metal |
-| **Python required** | ✅ Yes | ❌ No |
-| **Memory footprint** | Full precision | Quantized (Q4–BF16) |
-
-### Why C++?
+**acestep-cpp-ui** is a fork of the original ace-step-ui project that replaces the Python/Gradio backend with a native C++ inference engine — [acestep.cpp](https://github.com/ServeurpersoCom/acestep.cpp).
 
 - **No Python environment to manage** — just build once and run
 - **GGUF quantization** — run larger models with less VRAM
@@ -108,7 +94,7 @@
 |-------|-------------|
 | **Frontend** | React 19, TypeScript, TailwindCSS, Vite |
 | **Backend** | Express.js, SQLite, better-sqlite3 |
-| **AI Engine** | [acestep.cpp](https://github.com/audiohacking/acestep.cpp) (native C++ binary, GGUF models) |
+| **AI Engine** | [acestep.cpp](https://github.com/ServeurpersoCom/acestep.cpp) (native C++ binary, GGUF models) |
 | **Audio Tools** | AudioMass, Demucs, FFmpeg |
 
 ---
@@ -442,7 +428,7 @@ Contributions are welcome! Whether you're fixing bugs, adding features, improvin
 
 ## 📄 License
 
-This project is open source under the [MIT License](LICENSE).
+This project is open source under the [MIT License](LICENSE). UI forked from [Ace-Step-UI](https://github.com/fspecii/ace-step-ui)
 
 ---
 
