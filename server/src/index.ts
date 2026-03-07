@@ -416,11 +416,16 @@ if (existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR));
   // Pre-load index.html once so the SPA fallback doesn't hit the disk per-request
   const indexHtml = readFileSync(path.join(DIST_DIR, 'index.html'), 'utf-8');
-  // SPA fallback: serve index.html for all unmatched non-API routes
+  // SPA fallback: serve index.html for all unmatched non-API routes.
+  // Skip requests that look like static asset files (have a file extension) so that
+  // missing assets get a proper 404 instead of the HTML shell with the wrong MIME type.
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api/') || req.path.startsWith('/audio/') ||
         req.path.startsWith('/editor/') || req.path.startsWith('/demucs-web/') ||
         req.path === '/health') {
+      return next();
+    }
+    if (path.extname(req.path) !== '') {
       return next();
     }
     res.type('html').send(indexHtml);

@@ -16,6 +16,9 @@ build/
 server/.env
 
 # Database (SQLite)
+data/*.db
+data/*.db-shm
+data/*.db-wal
 server/data/*.db
 server/data/*.db-shm
 server/data/*.db-wal
