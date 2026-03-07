@@ -546,12 +546,7 @@ async function runViaSpawn(
     const batchSize = Math.min(Math.max(params.batchSize ?? 1, 1), 8);
     if (batchSize > 1) ditArgs.push('--batch', String(batchSize));
 
-    if (params.referenceAudioUrl)  ditArgs.push('--reference-audio', resolveAudioPath(params.referenceAudioUrl));
-    if (params.sourceAudioUrl)     ditArgs.push('--src-audio',       resolveAudioPath(params.sourceAudioUrl));
-    if (params.repaintingStart && params.repaintingStart > 0)
-                                   ditArgs.push('--repainting-start', String(params.repaintingStart));
-    if (params.repaintingEnd && params.repaintingEnd > 0)
-                                   ditArgs.push('--repainting-end',   String(params.repaintingEnd));
+    if (params.sourceAudioUrl) ditArgs.push('--src-audio', resolveAudioPath(params.sourceAudioUrl));
     ditArgs.push(...parseExtraArgs(process.env.DIT_VAE_EXTRA_ARGS));
 
     console.log(`[Spawn] Job ${jobId}: dit-vae ${ditArgs.slice(0, 6).join(' ')} …`);
