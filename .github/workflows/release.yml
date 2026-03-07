@@ -1,0 +1,482 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0.0)"
+        required: true
+        default: "v0.0.0-dev"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ACESTEP_CPP_REPO: https://github.com/ServeurpersoCom/acestep.cpp.git
+  NODE_VERSION: "20"
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # 1. Build the React frontend (platform-independent)
+  # ────────────────────────────────────────────────────────────────────────────
+  build-frontend:
+    name: Build frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install & build
+        run: npm ci && npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+          retention-days: 1
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 2. Compile the Node.js server (platform-independent JS)
+  # ────────────────────────────────────────────────────────────────────────────
+  build-server:
+    name: Build Node.js server
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install, compile & prune to production deps
+        run: |
+          npm ci
+          npm run build
+          npm prune --production
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-bundle
+          path: |
+            server/dist/
+            server/node_modules/
+            server/package.json
+          retention-days: 1
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 3. Per-platform: build acestep.cpp, assemble bundle
+  # ────────────────────────────────────────────────────────────────────────────
+  build-platform:
+    name: Build ${{ matrix.label }}
+    needs: [build-frontend, build-server]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64 — detect available accelerators at build time
+          - label: linux-x64
+            runner: ubuntu-22.04
+            os: linux
+
+          # Linux ARM64 — detect available accelerators at build time
+          - label: linux-arm64
+            runner: ubuntu-22.04-arm
+            os: linux
+
+          # macOS Apple Silicon — Metal + Accelerate BLAS auto-detected by cmake
+          - label: macos-arm64
+            runner: macos-14
+            os: macos
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── System dependencies ─────────────────────────────────────────────
+      - name: Install build tools (Linux)
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y cmake ninja-build libssl-dev pkg-config libopenblas-dev
+
+      - name: Install build tools (macOS)
+        if: matrix.os == 'macos'
+        run: brew install cmake ninja
+
+      # ── Clone & build acestep.cpp ───────────────────────────────────────
+      - name: Clone acestep.cpp
+        run: |
+          git clone --depth 1 ${{ env.ACESTEP_CPP_REPO }} acestep.cpp
+          cd acestep.cpp
+          git submodule update --init --recursive --depth 1
+
+      # ── Detect hardware and set cmake flags ──────────────────────────────
+      # Follows the detection approach documented in the acestep.cpp README:
+      #   CUDA (NVIDIA):  -DGGML_CUDA=ON
+      #   ROCm/HIP (AMD): -DGGML_HIP=ON
+      #   Vulkan:         -DGGML_VULKAN=ON
+      #   OpenBLAS (CPU): -DGGML_BLAS=ON
+      #   macOS:          Metal + Accelerate BLAS auto-detected by cmake
+      - name: Detect hardware and set cmake flags
+        id: detect
+        shell: bash
+        run: |
+          FLAGS=""
+          if [[ "$(uname)" == "Darwin" ]]; then
+            echo "Platform: macOS — Metal and Accelerate BLAS auto-detected by cmake"
+          else
+            # CUDA (NVIDIA)
+            if command -v nvcc &>/dev/null || [ -d /usr/local/cuda ] || [ -d /usr/cuda ]; then
+              FLAGS="$FLAGS -DGGML_CUDA=ON"
+              echo "Detected: CUDA"
+            fi
+            # ROCm/HIP (AMD)
+            if command -v hipcc &>/dev/null || [ -d /opt/rocm ]; then
+              FLAGS="$FLAGS -DGGML_HIP=ON"
+              echo "Detected: ROCm/HIP"
+            fi
+            # Vulkan
+            if pkg-config --exists vulkan 2>/dev/null; then
+              FLAGS="$FLAGS -DGGML_VULKAN=ON"
+              echo "Detected: Vulkan"
+            fi
+            # OpenBLAS (recommended for CPU-only machines)
+            if pkg-config --exists openblas 2>/dev/null; then
+              FLAGS="$FLAGS -DGGML_BLAS=ON"
+              echo "Detected: OpenBLAS"
+            fi
+            [ -z "$FLAGS" ] && echo "No accelerator detected — CPU-only build"
+          fi
+          echo "flags=$FLAGS" >> "$GITHUB_OUTPUT"
+          echo "cmake flags: $FLAGS"
+
+      - name: Cache acestep.cpp build artifacts
+        uses: actions/cache@v4
+        with:
+          path: acestep.cpp/build
+          key: acestep-${{ matrix.label }}-${{ hashFiles('acestep.cpp/CMakeLists.txt') }}
+          restore-keys: acestep-${{ matrix.label }}-
+
+      - name: Build acestep.cpp
+        run: |
+          cmake -S acestep.cpp -B acestep.cpp/build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            ${{ steps.detect.outputs.flags }}
+          cmake --build acestep.cpp/build --parallel
+
+      # Locate the three generated binaries
+      - name: Locate binaries
+        id: locate-bins
+        shell: bash
+        run: |
+          locate_bin() {
+            local name="$1"
+            local found
+            found=$(find acestep.cpp/build -name "$name" -type f 2>/dev/null | head -1)
+            if [ -n "$found" ]; then
+              echo "Found $name → $found" >&2
+              printf '%s' "$found"
+            else
+              echo "⚠️  $name not found in build tree" >&2
+              printf ''
+            fi
+          }
+
+          LM_BIN=$(locate_bin "ace-qwen3")
+          DIT_VAE_BIN=$(locate_bin "dit-vae")
+          NEURAL_CODEC_BIN=$(locate_bin "neural-codec")
+
+          echo "lm_bin=$LM_BIN"               >> "$GITHUB_OUTPUT"
+          echo "dit_vae_bin=$DIT_VAE_BIN"     >> "$GITHUB_OUTPUT"
+          echo "neural_codec_bin=$NEURAL_CODEC_BIN" >> "$GITHUB_OUTPUT"
+
+      # ── Download pre-built UI artifacts ─────────────────────────────────
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: _release/dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: server-bundle
+          path: _release/server-bundle
+
+      # ── Assemble the release bundle ──────────────────────────────────────
+      - name: Assemble bundle
+        shell: bash
+        run: |
+          set -e
+          APP=acestep-cpp-ui
+          mkdir -p "$APP/bin" "$APP/dist" "$APP/server/dist" "$APP/server/node_modules" \
+                   "$APP/data" "$APP/public/audio" "$APP/logs"
+
+          # Node.js server (compiled JS + production node_modules)
+          cp -r _release/server-bundle/dist/.          "$APP/server/dist/"
+          cp -r _release/server-bundle/node_modules/.  "$APP/server/node_modules/"
+          cp    _release/server-bundle/package.json    "$APP/server/"
+
+          # React frontend (served by the API server)
+          cp -r _release/dist/. "$APP/dist/"
+
+          # acestep.cpp binaries — all three are needed at runtime:
+          #   ace-qwen3:    LLM (generates lyrics + audio codes from caption)
+          #   dit-vae:      DiT + VAE (synthesises audio from audio codes)
+          #   neural-codec: VAE encode/decode (auxiliary)
+          copy_bin() {
+            local name="$1"
+            local src="$2"
+            if [ -f "$src" ]; then
+              cp "$src" "$APP/bin/$name"
+              chmod +x "$APP/bin/$name"
+              echo "✅ Bundled $name"
+            else
+              echo "⚠️  $name not found — bundle will need the binary added manually"
+            fi
+          }
+          copy_bin "ace-qwen3"    "${{ steps.locate-bins.outputs.lm_bin }}"
+          copy_bin "dit-vae"      "${{ steps.locate-bins.outputs.dit_vae_bin }}"
+          copy_bin "neural-codec" "${{ steps.locate-bins.outputs.neural_codec_bin }}"
+
+          # .env template
+          cp .env.example "$APP/.env.example"
+
+          # start.sh
+          cat > "$APP/start.sh" << 'SH'
+          #!/bin/bash
+          # ACE-Step UI — quick start
+          set -e
+          DIR="$(cd "$(dirname "$0")" && pwd)"
+          cd "$DIR"
+
+          # Load .env if present
+          [ -f .env ] && export $(grep -v '^#' .env | grep -v '^\s*$' | xargs)
+
+          # Binaries bundled under bin/
+          : "${ACE_QWEN3_BIN:=$DIR/bin/ace-qwen3}"
+          : "${DIT_VAE_BIN:=$DIR/bin/dit-vae}"
+
+          # Models — download with ./models.sh if not present
+          : "${MODELS_DIR:=$DIR/models}"
+          : "${PORT:=3001}"
+
+          mkdir -p logs data public/audio models
+
+          echo "Starting API server on port $PORT ..."
+          ACE_QWEN3_BIN="$ACE_QWEN3_BIN" \
+          DIT_VAE_BIN="$DIT_VAE_BIN" \
+          MODELS_DIR="$MODELS_DIR" \
+          PORT="$PORT" \
+          DATABASE_PATH="$DIR/data/acestep.db" \
+          AUDIO_DIR="$DIR/public/audio" \
+          FRONTEND_URL="http://localhost:$PORT" \
+            node "$DIR/server/dist/index.js" &
+          NODE_PID=$!
+
+          sleep 2
+          echo ""
+          echo "ACE-Step UI → http://localhost:$PORT"
+          echo ""
+          trap 'kill $NODE_PID 2>/dev/null; exit 0' INT TERM
+          wait $NODE_PID
+          SH
+          chmod +x "$APP/start.sh"
+
+          # start.bat (Windows — needs WSL or separate build for the binary)
+          cat > "$APP/start.bat" << 'BAT'
+          @echo off
+          setlocal
+          set DIR=%~dp0
+          if "%ACE_QWEN3_BIN%"=="" set ACE_QWEN3_BIN=%DIR%bin\ace-qwen3.exe
+          if "%DIT_VAE_BIN%"==""   set DIT_VAE_BIN=%DIR%bin\dit-vae.exe
+          if "%MODELS_DIR%"==""    set MODELS_DIR=%DIR%models
+          if "%PORT%"==""          set PORT=3001
+          mkdir logs 2>nul & mkdir data 2>nul & mkdir public\audio 2>nul & mkdir models 2>nul
+          set DATABASE_PATH=%DIR%data\acestep.db
+          set AUDIO_DIR=%DIR%public\audio
+          set FRONTEND_URL=http://localhost:%PORT%
+          node "%DIR%server\dist\index.js"
+          BAT
+
+          # Release README
+          cat > "$APP/README.md" << 'MD'
+          # ACE-Step UI
+
+          Self-contained release bundle — no Python required.  
+          Music generation is powered by [acestep.cpp](https://github.com/ServeurpersoCom/acestep.cpp).
+
+          ## Requirements
+
+          - **Node.js ≥ 20** (runtime for the API server)
+          - **GGUF model files** — download with `./models.sh` (requires `curl`)
+
+          ## Quick Start
+
+          ```bash
+          # 1. Download models (~7.7 GB for Q8_0 defaults)
+          ./models.sh
+
+          # 2. Start the server
+          ./start.sh
+          # → open http://localhost:3001
+          ```
+
+          Or copy `.env.example` → `.env`, set `MODELS_DIR` to your model directory, then run `./start.sh`.
+
+          ## Binaries
+
+          | Binary | Role |
+          |--------|------|
+          | `bin/ace-qwen3` | LLM — generates lyrics and audio codes from caption |
+          | `bin/dit-vae` | DiT + VAE — synthesises stereo 48 kHz WAV from audio codes |
+          | `bin/neural-codec` | VAE encode/decode (auxiliary) |
+
+          ## Environment Variables
+
+          | Variable | Default | Description |
+          |----------|---------|-------------|
+          | `ACE_QWEN3_BIN` | `./bin/ace-qwen3` | Path to the ace-qwen3 LLM binary |
+          | `DIT_VAE_BIN` | `./bin/dit-vae` | Path to the dit-vae binary |
+          | `MODELS_DIR` | `./models` | Directory containing GGUF model files |
+          | `PORT` | `3001` | API + UI server port |
+          | `AUDIO_DIR` | `./public/audio` | Where generated audio is stored |
+          | `JWT_SECRET` | built-in | Change for multi-user deployments |
+
+          ## GPU Acceleration
+
+          This bundle is built with auto-detected hardware support.
+          For an explicit GPU build, rebuild `acestep.cpp` from source:
+
+          ```bash
+          # CUDA (Linux/Windows)
+          cmake -S acestep.cpp -B build -DGGML_CUDA=ON && cmake --build build -j$(nproc)
+
+          # Metal (macOS — auto-detected, nothing extra needed)
+          cmake -S acestep.cpp -B build && cmake --build build -j$(nproc)
+
+          # ROCm/HIP (AMD)
+          cmake -S acestep.cpp -B build -DGGML_HIP=ON && cmake --build build -j$(nproc)
+          ```
+
+          Then replace the binaries in `bin/` with the newly built ones.
+          MD
+
+          echo "Bundle ready:"
+          ls -lh "$APP/bin/" 2>/dev/null || echo "  (no binaries)"
+
+      # ── Strip debug symbols ──────────────────────────────────────────────
+      - name: Strip binary (Linux)
+        if: matrix.os == 'linux'
+        run: strip --strip-unneeded acestep-cpp-ui/bin/* 2>/dev/null || true
+
+      - name: Strip binary (macOS)
+        if: matrix.os == 'macos'
+        run: strip acestep-cpp-ui/bin/* 2>/dev/null || true
+
+      # ── Package ──────────────────────────────────────────────────────────
+      - name: Create tarball
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
+          [[ "$TAG" != v* ]] && TAG="${{ github.event.inputs.tag || 'v0.0.0-dev' }}"
+          ARCHIVE="acestep-cpp-ui-${TAG}-${{ matrix.label }}.tar.gz"
+          tar -czf "$ARCHIVE" acestep-cpp-ui/
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+          ls -lh "$ARCHIVE"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.label }}
+          path: ${{ env.ARCHIVE }}
+          retention-days: 7
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 4. Publish GitHub Release
+  # ────────────────────────────────────────────────────────────────────────────
+  publish-release:
+    name: Publish GitHub Release
+    needs: build-platform
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lh release-artifacts/
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          TAG="${GITHUB_REF_NAME:-}"
+          [[ "$TAG" == v* ]] || TAG="${{ github.event.inputs.tag || 'v0.0.0-dev' }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV" ]; then
+            LOG=$(git log "${PREV}..HEAD" --oneline --no-decorate 2>/dev/null | head -50)
+          else
+            LOG=$(git log --oneline --no-decorate | head -30)
+          fi
+          { echo "log<<EOF"; echo "$LOG"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "ACE-Step UI ${{ steps.tag.outputs.tag }}"
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.tag, '-') }}
+          body: |
+            ## ACE-Step UI ${{ steps.tag.outputs.tag }}
+
+            Self-contained bundle — **no Python required**.  
+            The Node.js API server spawns `acestep-generate` directly; no extra processes to manage.
+
+            ### Platforms
+            | File | OS | Arch |
+            |------|----|------|
+            | `*-linux-x64.tar.gz`  | Linux  | x86_64       |
+            | `*-linux-arm64.tar.gz`| Linux  | ARM64        |
+            | `*-macos-arm64.tar.gz`| macOS  | Apple Silicon|
+
+            ### Quick Start
+            ```bash
+            tar xzf acestep-cpp-ui-*-linux-x64.tar.gz
+            cd acestep-cpp-ui
+            export ACESTEP_MODEL=/path/to/model.gguf
+            ./start.sh          # → http://localhost:3001
+            ```
+
+            > **GPU note:** bundles are built CPU-only.  
+            > Replace `bin/acestep-generate` with a CUDA/Metal build for GPU acceleration.
+
+            ### What's Changed
+            ${{ steps.changelog.outputs.log }}
+          files: release-artifacts/*
+          fail_on_unmatched_files: false

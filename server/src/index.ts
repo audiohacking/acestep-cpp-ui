@@ -24,7 +24,7 @@ import playlistsRoutes from './routes/playlists.js';
 import contactRoutes from './routes/contact.js';
 import referenceTrackRoutes from './routes/referenceTrack.js';
 import loraRoutes from './routes/lora.js';
-import trainingRoutes from './routes/training.js';
+import modelsRoutes from './routes/models.js';
 import { pool } from './db/pool.js';
 import './db/migrate.js';
 
@@ -406,7 +406,7 @@ app.use('/api/playlists', playlistsRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/reference-tracks', referenceTrackRoutes);
 app.use('/api/lora', loraRoutes);
-app.use('/api/training', trainingRoutes);
+app.use('/api/models', modelsRoutes);
 
 // Error handler
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -429,7 +429,7 @@ cron.schedule('0 3 * * *', async () => {
 app.listen(config.port, '0.0.0.0', () => {
   console.log(`ACE-Step UI Server running on http://localhost:${config.port}`);
   console.log(`Environment: ${config.nodeEnv}`);
-  console.log(`ACE-Step API: ${config.acestep.apiUrl}`);
+  console.log(`acestep-cpp API: ${config.acestep.apiUrl}`);
 
   // Show LAN access info
   import('os').then(os => {

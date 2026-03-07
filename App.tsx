@@ -20,8 +20,8 @@ import { List } from 'lucide-react';
 import { PlaylistDetail } from './components/PlaylistDetail';
 import { Toast, ToastType } from './components/Toast';
 import { SearchPage } from './components/SearchPage';
-import { TrainingPanel } from './components/TrainingPanel';
 import { NewsPage } from './components/NewsPage';
+import { ModelManager } from './components/ModelManager';
 import { ConfirmDialog } from './components/ConfirmDialog';
 
 
@@ -288,6 +288,8 @@ function AppContent() {
         setCurrentView('search');
       } else if (path === '/news') {
         setCurrentView('news');
+      } else if (path === '/models') {
+        setCurrentView('models');
       }
     };
 
@@ -1293,8 +1295,12 @@ function AppContent() {
           />
         );
 
-      case 'training':
-        return <TrainingPanel />;
+      case 'models':
+        return (
+          <div className="flex-1 overflow-y-auto bg-zinc-900">
+            <ModelManager />
+          </div>
+        );
 
       case 'news':
         return <NewsPage />;
@@ -1399,6 +1405,8 @@ function AppContent() {
               window.history.pushState({}, '', '/');
             } else if (v === 'library') {
               window.history.pushState({}, '', '/library');
+            } else if (v === 'models') {
+              window.history.pushState({}, '', '/models');
             } else if (v === 'search') {
               window.history.pushState({}, '', '/search');
             } else if (v === 'news') {

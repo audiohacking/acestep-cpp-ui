@@ -1,49 +1,214 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { existsSync, readdirSync } from 'fs';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname  = path.dirname(__filename);
+
+// App root = two levels above server/dist/ in both dev (server/src/) and
+// release bundle (server/dist/) layouts:
+//   dev:     <repo>/server/src/  → ../.. → <repo>/
+//   release: <bundle>/server/dist/ → ../.. → <bundle>/
+const APP_ROOT = path.resolve(__dirname, '../..');
+
+// ── Binary resolution ───────────────────────────────────────────────────────
+
+/** Resolves the ace-qwen3 LLM binary path (step 1 of the pipeline). */
+function resolveLmBin(): string {
+  if (process.env.ACE_QWEN3_BIN) return process.env.ACE_QWEN3_BIN;
+  for (const name of ['ace-qwen3', 'ace-qwen3.exe']) {
+    const p = path.join(APP_ROOT, 'bin', name);
+    if (existsSync(p)) return p;
+  }
+  return '';
+}
+
+/** Resolves the dit-vae binary path (step 2 of the pipeline). */
+function resolveDitVaeBin(): string {
+  if (process.env.DIT_VAE_BIN) return process.env.DIT_VAE_BIN;
+  for (const name of ['dit-vae', 'dit-vae.exe']) {
+    const p = path.join(APP_ROOT, 'bin', name);
+    if (existsSync(p)) return p;
+  }
+  return '';
+}
+
+// ── Model resolution ─────────────────────────────────────────────────────────
+
+/** Resolves the models directory. */
+function resolveModelsDir(): string {
+  if (process.env.MODELS_DIR) return process.env.MODELS_DIR;
+  return path.join(APP_ROOT, 'models');
+}
+
+/** Resolves the DiT model (acestep-v15-turbo-*.gguf). */
+function resolveDitModel(modelsDir: string): string {
+  if (process.env.ACESTEP_MODEL) return process.env.ACESTEP_MODEL;
+  if (!existsSync(modelsDir)) return '';
+
+  const preference = [
+    'acestep-v15-turbo-Q8_0.gguf',
+    'acestep-v15-turbo-Q6_K.gguf',
+    'acestep-v15-turbo-Q5_K_M.gguf',
+    'acestep-v15-turbo-Q4_K_M.gguf',
+    'acestep-v15-turbo-BF16.gguf',
+  ];
+  for (const name of preference) {
+    const p = path.join(modelsDir, name);
+    if (existsSync(p)) return p;
+  }
+
+  try {
+    const files = readdirSync(modelsDir).filter(f => f.endsWith('.gguf') && !f.endsWith('.part'));
+    const turbo = files.find(f => f.startsWith('acestep-v15-turbo'));
+    if (turbo) return path.join(modelsDir, turbo);
+    const sft   = files.find(f => f.startsWith('acestep-v15'));
+    if (sft)   return path.join(modelsDir, sft);
+  } catch { /* ignore read errors */ }
+
+  return '';
+}
+
+/** Resolves the causal LM model (acestep-5Hz-lm-*.gguf). */
+function resolveLmModel(modelsDir: string): string {
+  if (process.env.LM_MODEL) return process.env.LM_MODEL;
+  if (!existsSync(modelsDir)) return '';
+
+  // Prefer 4B Q8_0, then smaller quantisations, then smaller LM sizes
+  const preference = [
+    'acestep-5Hz-lm-4B-Q8_0.gguf',
+    'acestep-5Hz-lm-4B-Q6_K.gguf',
+    'acestep-5Hz-lm-4B-Q5_K_M.gguf',
+    'acestep-5Hz-lm-4B-BF16.gguf',
+    'acestep-5Hz-lm-1.7B-Q8_0.gguf',
+    'acestep-5Hz-lm-1.7B-BF16.gguf',
+    'acestep-5Hz-lm-0.6B-Q8_0.gguf',
+    'acestep-5Hz-lm-0.6B-BF16.gguf',
+  ];
+  for (const name of preference) {
+    const p = path.join(modelsDir, name);
+    if (existsSync(p)) return p;
+  }
+
+  try {
+    const files = readdirSync(modelsDir).filter(f => f.endsWith('.gguf') && !f.endsWith('.part'));
+    const lm = files.find(f => f.startsWith('acestep-5Hz-lm-'));
+    if (lm) return path.join(modelsDir, lm);
+  } catch { /* ignore */ }
+
+  return '';
+}
+
+/** Resolves the text-encoder model (Qwen3-Embedding-*.gguf). */
+function resolveTextEncoderModel(modelsDir: string): string {
+  if (process.env.TEXT_ENCODER_MODEL) return process.env.TEXT_ENCODER_MODEL;
+  if (!existsSync(modelsDir)) return '';
+
+  for (const name of [
+    'Qwen3-Embedding-0.6B-Q8_0.gguf',
+    'Qwen3-Embedding-0.6B-BF16.gguf',
+  ]) {
+    const p = path.join(modelsDir, name);
+    if (existsSync(p)) return p;
+  }
+
+  try {
+    const files = readdirSync(modelsDir).filter(f => f.endsWith('.gguf') && !f.endsWith('.part'));
+    const enc = files.find(f => f.startsWith('Qwen3-Embedding'));
+    if (enc) return path.join(modelsDir, enc);
+  } catch { /* ignore */ }
+
+  return '';
+}
+
+/** Resolves the VAE model (vae-BF16.gguf). */
+function resolveVaeModel(modelsDir: string): string {
+  if (process.env.VAE_MODEL) return process.env.VAE_MODEL;
+  if (!existsSync(modelsDir)) return '';
+
+  for (const name of ['vae-BF16.gguf', 'vae-Q8_0.gguf']) {
+    const p = path.join(modelsDir, name);
+    if (existsSync(p)) return p;
+  }
+
+  try {
+    const files = readdirSync(modelsDir).filter(f => f.endsWith('.gguf') && !f.endsWith('.part'));
+    const vae = files.find(f => f.startsWith('vae-'));
+    if (vae) return path.join(modelsDir, vae);
+  } catch { /* ignore */ }
+
+  return '';
+}
+
+// ── Resolve everything ───────────────────────────────────────────────────────
+
+const modelsDir          = resolveModelsDir();
+const resolvedLmBin      = resolveLmBin();
+const resolvedDitVaeBin  = resolveDitVaeBin();
+const resolvedDitModel   = resolveDitModel(modelsDir);
+const resolvedLmModel    = resolveLmModel(modelsDir);
+const resolvedTextEncoderModel = resolveTextEncoderModel(modelsDir);
+const resolvedVaeModel   = resolveVaeModel(modelsDir);
+
+// Log detected paths at startup
+if (resolvedLmBin)             console.log(`[config] ace-qwen3:      ${resolvedLmBin}`);
+else                           console.log('[config] ace-qwen3:      not found (set ACE_QWEN3_BIN)');
+if (resolvedDitVaeBin)         console.log(`[config] dit-vae:        ${resolvedDitVaeBin}`);
+else                           console.log('[config] dit-vae:        not found (set DIT_VAE_BIN)');
+if (resolvedLmModel)           console.log(`[config] LM model:       ${resolvedLmModel}`);
+else                           console.log('[config] LM model:       none (run models.sh)');
+if (resolvedTextEncoderModel)  console.log(`[config] text encoder:   ${resolvedTextEncoderModel}`);
+else                           console.log('[config] text encoder:   none (run models.sh)');
+if (resolvedDitModel)          console.log(`[config] DiT model:      ${resolvedDitModel}`);
+else                           console.log('[config] DiT model:      none (run models.sh)');
+if (resolvedVaeModel)          console.log(`[config] VAE model:      ${resolvedVaeModel}`);
+else                           console.log('[config] VAE model:      none (run models.sh)');
 
 export const config = {
-  port: parseInt(process.env.PORT || '3001', 10),
+  port:    parseInt(process.env.PORT || '3001', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
 
   // SQLite database
   database: {
-    path: process.env.DATABASE_PATH || path.join(__dirname, '../../data/acestep.db'),
+    path: process.env.DATABASE_PATH || path.join(APP_ROOT, 'data', 'acestep.db'),
   },
 
-  // ACE-Step API (local)
+  // acestep-cpp — spawn mode uses ace-qwen3 + dit-vae directly.
+  // HTTP mode fallback: calls ACESTEP_API_URL (e.g. a running acestep-cpp server).
   acestep: {
-    apiUrl: process.env.ACESTEP_API_URL || 'http://localhost:8001',
+    // Two-binary spawn mode (acestep.cpp native pipeline)
+    lmBin:             resolvedLmBin,
+    ditVaeBin:         resolvedDitVaeBin,
+    lmModel:           resolvedLmModel,
+    textEncoderModel:  resolvedTextEncoderModel,
+    ditModel:          resolvedDitModel,
+    vaeModel:          resolvedVaeModel,
+
+    // HTTP fallback mode
+    apiUrl: process.env.ACESTEP_API_URL || 'http://localhost:7860',
   },
 
-  // Pexels (optional - for video backgrounds)
-  pexels: {
-    apiKey: process.env.PEXELS_API_KEY || '',
+  // GGUF model storage
+  models: {
+    dir: modelsDir,
   },
 
-  // Frontend URL
+  // Pexels (optional)
+  pexels: { apiKey: process.env.PEXELS_API_KEY || '' },
+
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
 
-  // Storage (local only)
   storage: {
     provider: 'local' as const,
-    audioDir: process.env.AUDIO_DIR || path.join(__dirname, '../../public/audio'),
+    audioDir: process.env.AUDIO_DIR || path.join(APP_ROOT, 'public', 'audio'),
   },
 
-  // Training datasets (inside ACE-Step-1.5 so Gradio can access them)
-  datasets: {
-    dir: process.env.DATASETS_DIR || path.join(__dirname, '../../../ACE-Step-1.5/datasets'),
-    uploadsDir: process.env.DATASETS_UPLOADS_DIR || path.join(__dirname, '../../../ACE-Step-1.5/datasets/uploads'),
-  },
-
-  // Simplified JWT (for local session, not critical security)
   jwt: {
-    secret: process.env.JWT_SECRET || 'ace-step-ui-local-secret',
-    expiresIn: '365d', // Long-lived for local app
+    secret:    process.env.JWT_SECRET || 'ace-step-ui-local-secret',
+    expiresIn: '365d',
   },
 };
+

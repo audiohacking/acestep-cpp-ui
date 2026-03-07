@@ -1,87 +1,92 @@
 #!/bin/bash
-# ACE-Step UI Setup Script
-
+# ACE-Step UI Setup Script (acestep-cpp edition)
 set -e
 
 echo "=================================="
 echo "  ACE-Step UI Setup"
 echo "=================================="
+echo ""
 
-# Check if ACE-Step exists
-ACESTEP_PATH="${ACESTEP_PATH:-../ACE-Step-1.5}"
-
-if [ ! -d "$ACESTEP_PATH" ]; then
-    echo "Error: ACE-Step not found at $ACESTEP_PATH"
-    echo ""
-    echo "Please clone ACE-Step first:"
-    echo "  cd .."
-    echo "  git clone https://github.com/ace-step/ACE-Step-1.5"
-    echo "  cd ACE-Step-1.5"
-    echo "  uv venv && uv pip install -e ."
-    echo "  cd ../ace-step-ui"
-    echo "  ./setup.sh"
-    exit 1
+# ── Check for Node.js ────────────────────────────────────────────────────────
+if ! command -v node &> /dev/null; then
+  echo "Error: Node.js >= 20 is required."
+  echo "Install from https://nodejs.org/"
+  exit 1
 fi
 
-if [ ! -d "$ACESTEP_PATH/.venv" ]; then
-    echo "Error: ACE-Step venv not found. Please set up ACE-Step first:"
-    echo "  cd $ACESTEP_PATH"
-    echo "  uv venv && uv pip install -e ."
-    exit 1
+NODE_MAJOR=$(node -e "process.stdout.write(String(process.versions.node.split('.')[0]))")
+if [ "$NODE_MAJOR" -lt 20 ]; then
+  echo "Error: Node.js >= 20 required (found $(node -v))."
+  exit 1
 fi
 
-echo "Found ACE-Step at: $ACESTEP_PATH"
+echo "Node.js $(node -v) ✓"
 
-# Get absolute path
-ACESTEP_PATH=$(cd "$ACESTEP_PATH" && pwd)
+# ── Check for curl / wget ────────────────────────────────────────────────────
+if ! command -v curl &>/dev/null && ! command -v wget &>/dev/null; then
+  echo "Warning: curl or wget required to download models."
+  echo "  sudo apt install curl  OR  brew install curl"
+fi
 
-# Create .env file
-echo "Creating .env file..."
-cat > .env << EOF
-# ACE-Step UI Configuration
+# ── Check for acestep.cpp binary ─────────────────────────────────────────────
+if [ -n "${ACESTEP_BIN:-}" ] && [ -x "$ACESTEP_BIN" ]; then
+  echo "acestep-generate: $ACESTEP_BIN ✓"
+else
+  echo ""
+  echo "Note: ACESTEP_BIN is not set."
+  echo "  Build acestep.cpp and set ACESTEP_BIN before generating music:"
+  echo ""
+  echo "    git clone https://github.com/audiohacking/acestep.cpp"
+  echo "    cmake -S acestep.cpp -B acestep.cpp/build -DCMAKE_BUILD_TYPE=Release"
+  echo "    cmake --build acestep.cpp/build --parallel"
+  echo "    export ACESTEP_BIN=\$(pwd)/acestep.cpp/build/bin/acestep-generate"
+  echo ""
+fi
 
-# Path to ACE-Step installation
-ACESTEP_PATH=$ACESTEP_PATH
+# ── Download GGUF models ─────────────────────────────────────────────────────
+MODELS_DIR_INIT="${MODELS_DIR:-models}"
+if [ -d "$MODELS_DIR_INIT" ] && ls "$MODELS_DIR_INIT"/*.gguf &>/dev/null 2>&1; then
+  echo "Models already present in $MODELS_DIR_INIT/ ✓"
+else
+  echo ""
+  echo "Downloading default GGUF models (Q8_0 essentials)..."
+  echo "  VAE + Text Encoder + LM-4B + DiT-Turbo (~8 GB)"
+  echo ""
+  echo "  Tip: press Ctrl-C to skip and run ./models.sh manually later,"
+  echo "       or download from the Models tab in the UI after starting."
+  echo ""
+  bash models.sh || echo "  Model download skipped — run ./models.sh when ready."
+fi
 
-# Server ports
-PORT=3001
-FRONTEND_PORT=3000
+# ── Create .env ───────────────────────────────────────────────────────────────
+if [ ! -f ".env" ]; then
+  echo "Creating .env from .env.example..."
+  cp .env.example .env
+  echo "  ✓ .env created — edit it to set ACESTEP_BIN and ACESTEP_MODEL"
+else
+  echo ".env already exists ✓"
+fi
 
-# Database
-DATABASE_PATH=./server/data/acestep.db
-EOF
-
-# Install frontend dependencies
+# ── Install dependencies ──────────────────────────────────────────────────────
 echo ""
 echo "Installing frontend dependencies..."
 npm install
 
-# Install server dependencies
 echo ""
 echo "Installing server dependencies..."
-cd server
-npm install
-cd ..
+cd server && npm install && cd ..
 
-# Initialize database
-echo ""
-echo "Initializing database..."
-cd server
-npm run migrate 2>/dev/null || echo "Migration script not found, skipping..."
-cd ..
+# ── Create runtime dirs ───────────────────────────────────────────────────────
+mkdir -p data public/audio logs
 
 echo ""
 echo "=================================="
 echo "  Setup Complete!"
 echo "=================================="
 echo ""
-echo "To start the application:"
-echo ""
-echo "  # Terminal 1 - Start backend"
-echo "  cd server && npm run dev"
-echo ""
-echo "  # Terminal 2 - Start frontend"
-echo "  npm run dev"
-echo ""
-echo "Then open http://localhost:3000"
+echo "Next steps:"
+echo "  1. Edit .env — set ACESTEP_BIN and ACESTEP_MODEL"
+echo "  2. Run ./start-all.sh"
+echo "  3. Open http://localhost:3001"
+echo "  4. Use the Models tab to download/manage GGUF files"
 echo ""

@@ -10,7 +10,6 @@
     "storage:test": "tsx src/scripts/test-storage.ts"
   },
   "dependencies": {
-    "@gradio/client": "^2.0.4",
     "@types/multer": "^2.0.0",
     "better-sqlite3": "^11.0.0",
     "cors": "^2.8.5",

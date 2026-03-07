@@ -1,12 +1,11 @@
 import { Router, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
 import { pool } from '../db/pool.js';
 import { generateUUID } from '../db/sqlite.js';
 import { config } from '../config/index.js';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth.js';
-import { getGradioClient } from '../services/gradio-client.js';
 import {
   generateMusicViaAPI,
   getJobStatus,
@@ -16,7 +15,6 @@ import {
   cleanupJob,
   getJobRawResponse,
   downloadAudioToBuffer,
-  resolvePythonPath,
 } from '../services/acestep.js';
 import { getStorageProvider } from '../services/storage/factory.js';
 
@@ -597,163 +595,90 @@ router.get('/endpoints', authMiddleware, async (_req: AuthenticatedRequest, res:
 });
 
 router.get('/models', async (_req, res: Response) => {
-  try {
-    const ACESTEP_DIR = process.env.ACESTEP_PATH || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../ACE-Step-1.5');
-    const checkpointsDir = path.join(ACESTEP_DIR, 'checkpoints');
-
-    // All known DiT models from Gradio's model_downloader.py registry:
-    // - MAIN_MODEL_COMPONENTS includes "acestep-v15-turbo" (bundled with main download)
-    // - SUBMODEL_REGISTRY includes the rest (separate HuggingFace repos, auto-downloaded on init)
-    const ALL_DIT_MODELS = [
-      'acestep-v15-turbo',             // default, from main model repo
-      'acestep-v15-base',              // submodel
-      'acestep-v15-sft',               // submodel
-      'acestep-v15-turbo-shift1',      // submodel
-      'acestep-v15-turbo-shift3',      // submodel
-      'acestep-v15-turbo-continuous',   // submodel
-    ];
-
-    // Query Gradio /v1/models to get the currently loaded/active model
-    let activeModel: string | null = null;
+  // In HTTP mode: ask the server; in spawn mode: return current model from config
+  if (!(config.acestep.lmBin && config.acestep.ditVaeBin)) {
     try {
       const apiRes = await fetch(`${config.acestep.apiUrl}/v1/models`);
       if (apiRes.ok) {
         const data = await apiRes.json() as any;
-        const gradioModels = data?.data?.models || data?.models || [];
-        if (gradioModels.length > 0) {
-          activeModel = gradioModels[0]?.name || null;
-        }
+        // Support both { models: [...] } (acestep-cpp) and { data: { models: [...] } } legacy shape
+        const models = data?.models || data?.data?.models || [];
+        res.json({ models });
+        return;
       }
-    } catch {
-      // Gradio API unavailable
-    }
-
-    // Check which models are downloaded (exist on disk)
-    // Matches Gradio's handler.py check_model_exists() and get_available_acestep_v15_models()
-    const { existsSync, statSync } = await import('fs');
-    const downloaded = new Set<string>();
-    for (const model of ALL_DIT_MODELS) {
-      const modelPath = path.join(checkpointsDir, model);
-      try {
-        if (existsSync(modelPath) && statSync(modelPath).isDirectory()) {
-          downloaded.add(model);
-        }
-      } catch { /* skip */ }
-    }
-
-    // Also scan for any additional acestep-v15-* models on disk not in the registry
-    // (e.g. user-trained or community models)
-    try {
-      const { readdirSync } = await import('fs');
-      for (const entry of readdirSync(checkpointsDir)) {
-        if (entry.startsWith('acestep-v15-') && statSync(path.join(checkpointsDir, entry)).isDirectory()) {
-          downloaded.add(entry);
-          if (!ALL_DIT_MODELS.includes(entry)) {
-            ALL_DIT_MODELS.push(entry);
-          }
-        }
-      }
-    } catch { /* checkpoints dir may not exist */ }
-
-    const models = ALL_DIT_MODELS.map(name => ({
-      name,
-      is_active: name === activeModel,
-      is_preloaded: downloaded.has(name),
-    }));
-
-    // Sort: active first, then downloaded, then alphabetical
-    models.sort((a, b) => {
-      if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
-      if (a.is_preloaded !== b.is_preloaded) return a.is_preloaded ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-
-    res.json({ models });
-  } catch (error) {
-    console.error('Models error:', error);
-    res.status(500).json({ error: (error as Error).message });
+    } catch { /* fall through to defaults */ }
   }
+
+  // Spawn mode (or HTTP server unreachable): report the configured DiT model
+  const activeModel = config.acestep.ditModel
+    ? path.basename(config.acestep.ditModel, path.extname(config.acestep.ditModel))
+    : 'acestep-v15-turbo';
+
+  res.json({
+    models: [
+      { name: activeModel,         is_active: true,  is_preloaded: Boolean(config.acestep.ditModel) },
+      { name: 'acestep-v15-turbo', is_active: activeModel === 'acestep-v15-turbo', is_preloaded: false },
+      { name: 'acestep-v15-base',  is_active: false, is_preloaded: false },
+      { name: 'acestep-v15-sft',   is_active: false, is_preloaded: false },
+    ].filter((m, i, arr) => i === arr.findIndex(n => n.name === m.name)), // dedup
+  });
 });
 
 // GET /api/generate/random-description — Load a random simple description from Gradio
 router.get('/random-description', authMiddleware, async (_req: AuthenticatedRequest, res: Response) => {
-  try {
-    const client = await getGradioClient();
-    const result = await client.predict('/load_random_simple_description', []);
-    const data = result.data as unknown[];
-    // Returns [description, instrumental, vocal_language]
-    res.json({
-      description: data[0] || '',
-      instrumental: data[1] || false,
-      vocalLanguage: data[2] || 'unknown',
-    });
-  } catch (error) {
-    console.error('Random description error:', error);
-    res.status(500).json({ error: (error as Error).message });
-  }
+  // Return a static random description from a built-in list
+  const descriptions = [
+    { description: 'upbeat pop song with catchy hooks and electric guitar', instrumental: false, vocalLanguage: 'en' },
+    { description: 'cinematic orchestral score with epic strings and choir', instrumental: true, vocalLanguage: 'en' },
+    { description: 'lo-fi hip hop beat with jazzy chords and soft drums', instrumental: true, vocalLanguage: 'en' },
+    { description: 'dark electronic track with heavy bass and synth leads', instrumental: false, vocalLanguage: 'en' },
+    { description: 'acoustic folk ballad with fingerpicked guitar and warm vocals', instrumental: false, vocalLanguage: 'en' },
+    { description: 'funky r&b groove with slap bass and brass stabs', instrumental: true, vocalLanguage: 'en' },
+    { description: 'dreamy indie pop with reverb-drenched guitars and airy vocals', instrumental: false, vocalLanguage: 'en' },
+    { description: 'energetic rock anthem with distorted guitars and powerful drums', instrumental: false, vocalLanguage: 'en' },
+    { description: 'smooth jazz quartet with piano, bass, drums, and saxophone', instrumental: true, vocalLanguage: 'en' },
+    { description: 'ambient electronic soundscape with evolving pads and textures', instrumental: true, vocalLanguage: 'en' },
+  ];
+  const pick = descriptions[Math.floor(Math.random() * descriptions.length)];
+  res.json(pick);
 });
 
 router.get('/health', async (_req, res: Response) => {
   try {
     const healthy = await checkSpaceHealth();
-    res.json({ healthy, aceStepUrl: config.acestep.apiUrl });
+    const mode = (config.acestep.lmBin && config.acestep.ditVaeBin) ? 'spawn' : 'http';
+    res.json({
+      healthy,
+      mode,
+      lmBin:     config.acestep.lmBin     || null,
+      ditVaeBin: config.acestep.ditVaeBin || null,
+      aceStepUrl: config.acestep.apiUrl,
+    });
   } catch (error) {
-    res.json({ healthy: false, aceStepUrl: config.acestep.apiUrl, error: (error as Error).message });
+    res.json({ healthy: false, error: (error as Error).message });
   }
 });
 
 router.get('/limits', async (_req, res: Response) => {
-  try {
-    const { spawn } = await import('child_process');
-    const ACESTEP_DIR = process.env.ACESTEP_PATH || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../ACE-Step-1.5');
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = path.dirname(__filename);
-    const SCRIPTS_DIR = path.join(__dirname, '../../scripts');
-    const LIMITS_SCRIPT = path.join(SCRIPTS_DIR, 'get_limits.py');
-    const pythonPath = resolvePythonPath(ACESTEP_DIR);
-
-    const result = await new Promise<{ success: boolean; data?: any; error?: string }>((resolve) => {
-      const proc = spawn(pythonPath, [LIMITS_SCRIPT], {
-        cwd: ACESTEP_DIR,
-        env: {
-          ...process.env,
-          ACESTEP_PATH: ACESTEP_DIR,
-        },
-      });
-
-      let stdout = '';
-      let stderr = '';
-
-      proc.stdout.on('data', (data) => { stdout += data.toString(); });
-      proc.stderr.on('data', (data) => { stderr += data.toString(); });
-
-      proc.on('close', (code) => {
-        if (code === 0 && stdout) {
-          try {
-            const parsed = JSON.parse(stdout);
-            resolve({ success: true, data: parsed });
-          } catch {
-            resolve({ success: false, error: 'Failed to parse limits result' });
-          }
-        } else {
-          resolve({ success: false, error: stderr || 'Failed to read limits' });
-        }
-      });
-
-      proc.on('error', (err) => {
-        resolve({ success: false, error: err.message });
-      });
-    });
-
-    if (result.success && result.data) {
-      res.json(result.data);
-    } else {
-      res.status(500).json({ error: result.error || 'Failed to load limits' });
-    }
-  } catch (error) {
-    console.error('Limits error:', error);
-    res.status(500).json({ error: (error as Error).message });
+  // In HTTP mode, ask the server; in spawn mode, return safe defaults
+  if (!(config.acestep.lmBin && config.acestep.ditVaeBin)) {
+    try {
+      const response = await fetch(`${config.acestep.apiUrl}/v1/limits`);
+      if (response.ok) {
+        res.json(await response.json());
+        return;
+      }
+    } catch { /* fall through */ }
   }
+  // Safe defaults (users can override by setting VRAM-aware values in .env)
+  res.json({
+    tier: 'medium',
+    gpu_memory_gb: 8,
+    max_duration_with_lm: 120,
+    max_duration_without_lm: 240,
+    max_batch_size_with_lm: 2,
+    max_batch_size_without_lm: 4,
+  });
 });
 
 router.get('/debug/:taskId', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
@@ -770,138 +695,95 @@ router.get('/debug/:taskId', authMiddleware, async (req: AuthenticatedRequest, r
 });
 
 // Format endpoint - uses LLM to enhance style/lyrics
+// Spawn mode: runs `acestep-generate --mode format` with the prompt/lyrics as args
+// HTTP mode:  calls ACESTEP_API_URL/format_input
 router.post('/format', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { caption, lyrics, bpm, duration, keyScale, timeSignature, temperature, topK, topP, lmModel, lmBackend } = req.body;
+    const { caption, lyrics, bpm, duration, keyScale, timeSignature, temperature } = req.body;
 
     if (!caption) {
       res.status(400).json({ error: 'Caption/style is required' });
       return;
     }
 
-    const ACESTEP_API_URL = config.acestep.apiUrl;
+    // ── Spawn mode ────────────────────────────────────────────────────────
+    // ace-qwen3 is used for format/enhance — pass a request JSON with autogen enabled
+    if (config.acestep.lmBin && config.acestep.lmModel) {
+      const { writeFile: wf, mkdir: mkd, rm: rmf } = await import('fs/promises');
+      const { tmpdir } = await import('os');
+      const tmpD = path.join(tmpdir(), `acestep_fmt_${Date.now()}`);
+      await mkd(tmpD, { recursive: true });
+      const reqPath = path.join(tmpD, 'request.json');
+      const reqJson: Record<string, unknown> = {
+        caption,
+        lyrics:       lyrics        || '',
+        lm_temperature: temperature ?? 0.85,
+      };
+      if (bpm && bpm > 0)        reqJson.bpm           = bpm;
+      if (duration && duration > 0) reqJson.duration   = duration;
+      if (keyScale)              reqJson.keyscale       = keyScale;
+      if (timeSignature)         reqJson.timesignature  = timeSignature;
+      await wf(reqPath, JSON.stringify(reqJson, null, 2));
 
-    // Build param_obj for the REST API
-    const paramObj: Record<string, unknown> = {};
-    if (bpm && bpm > 0) paramObj.bpm = bpm;
-    if (duration && duration > 0) paramObj.duration = duration;
-    if (keyScale) paramObj.key = keyScale;
-    if (timeSignature) paramObj.time_signature = timeSignature;
-
-    // Primary path: call ACE-Step's /format_input REST endpoint (avoids Python spawn ENOENT on Windows)
-    try {
-      console.log(`[Format] Calling REST API: ${ACESTEP_API_URL}/format_input`);
-      const apiRes = await fetch(`${ACESTEP_API_URL}/format_input`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: caption,
-          lyrics: lyrics || '',
-          temperature: temperature ?? 0.85,
-          param_obj: paramObj,
-        }),
-        signal: AbortSignal.timeout(300_000), // 5 min — LLM may need to init first
+      const args: string[] = ['--request', reqPath, '--model', config.acestep.lmModel];
+      const { spawn } = await import('child_process');
+      const result = await new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
+        const proc = spawn(config.acestep.lmBin!, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+        let stdout = ''; let stderr = '';
+        proc.stdout.on('data', (c: Buffer) => { stdout += c.toString(); });
+        proc.stderr.on('data', (c: Buffer) => { stderr += c.toString(); });
+        proc.on('close', (code) => resolve({ stdout, stderr, code: code ?? 1 }));
+        proc.on('error', (e) => resolve({ stdout: '', stderr: e.message, code: 1 }));
       });
 
-      const apiData = await apiRes.json() as any;
+      // Read the enriched JSON output (request0.json placed alongside request.json)
+      let enriched: Record<string, unknown> = {};
+      try {
+        const { readFile } = await import('fs/promises');
+        const text = await readFile(path.join(tmpD, 'request0.json'), 'utf-8');
+        enriched = JSON.parse(text);
+      } catch { /* best-effort */ }
+      await rmf(tmpD, { recursive: true, force: true }).catch(() => { /* ignore */ });
 
-      if (!apiRes.ok || apiData.code !== 200) {
-        const errMsg = apiData.error || apiData.detail || `Format API returned ${apiRes.status}`;
-        console.error('[Format] API error:', errMsg);
-        res.status(500).json({ success: false, error: errMsg });
+      if (result.code !== 0 && !enriched.caption) {
+        res.status(500).json({ success: false, error: (result.stderr || result.stdout).slice(0, 500) });
         return;
       }
-
-      const d = apiData.data;
       res.json({
-        caption: d.caption,
-        lyrics: d.lyrics,
-        bpm: d.bpm,
-        duration: d.duration,
-        key_scale: d.key_scale,
-        time_signature: d.time_signature,
-        vocal_language: d.vocal_language,
+        caption:        enriched.caption        ?? caption,
+        lyrics:         enriched.lyrics         ?? lyrics,
+        bpm:            enriched.bpm,
+        duration:       enriched.duration,
+        key_scale:      enriched.keyscale,
+        time_signature: enriched.timesignature,
+        vocal_language: enriched.vocal_language,
       });
       return;
-    } catch (fetchErr: any) {
-      // Only fall back to Python spawn on network errors (service not yet reachable)
-      if (fetchErr?.name !== 'AbortError' && (fetchErr?.code === 'ECONNREFUSED' || fetchErr?.cause?.code === 'ECONNREFUSED')) {
-        console.warn('[Format] REST API unreachable, falling back to Python spawn');
-      } else {
-        console.error('[Format] REST API request failed:', fetchErr?.message);
-        res.status(500).json({ success: false, error: fetchErr?.message || 'Format request failed' });
-        return;
-      }
     }
 
-    // Fallback: Python spawn (only reached when REST API is unreachable)
-    const { spawn } = await import('child_process');
-    const ACESTEP_DIR = process.env.ACESTEP_PATH || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../ACE-Step-1.5');
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = path.dirname(__filename);
-    const SCRIPTS_DIR = path.join(__dirname, '../../scripts');
-    const FORMAT_SCRIPT = path.join(SCRIPTS_DIR, 'format_sample.py');
-    const pythonPath = resolvePythonPath(ACESTEP_DIR);
+    // ── HTTP mode ─────────────────────────────────────────────────────────
+    const paramObj: Record<string, unknown> = {};
+    if (bpm && bpm > 0)      paramObj.bpm            = bpm;
+    if (duration && duration > 0) paramObj.duration   = duration;
+    if (keyScale)            paramObj.key             = keyScale;
+    if (timeSignature)       paramObj.time_signature  = timeSignature;
 
-    const args = [FORMAT_SCRIPT, '--caption', caption, '--json'];
-    if (lyrics) args.push('--lyrics', lyrics);
-    if (bpm && bpm > 0) args.push('--bpm', String(bpm));
-    if (duration && duration > 0) args.push('--duration', String(duration));
-    if (keyScale) args.push('--key-scale', keyScale);
-    if (timeSignature) args.push('--time-signature', timeSignature);
-    if (temperature !== undefined) args.push('--temperature', String(temperature));
-    if (topK && topK > 0) args.push('--top-k', String(topK));
-    if (topP !== undefined) args.push('--top-p', String(topP));
-    if (lmModel) args.push('--lm-model', lmModel);
-    if (lmBackend) args.push('--lm-backend', lmBackend);
-
-    console.log(`[Format] Fallback spawn: ${pythonPath} ${args.join(' ')}`);
-    const result = await new Promise<{ success: boolean; data?: any; error?: string }>((resolve) => {
-      const proc = spawn(pythonPath, args, {
-        cwd: ACESTEP_DIR,
-        env: { ...process.env, ACESTEP_PATH: ACESTEP_DIR },
-      });
-
-      let stdout = '';
-      let stderr = '';
-
-      proc.stdout.on('data', (data) => { stdout += data.toString(); });
-      proc.stderr.on('data', (data) => { stderr += data.toString(); });
-
-      proc.on('close', (code) => {
-        if (code === 0 && stdout) {
-          const lines = stdout.trim().split('\n');
-          let jsonStr = '';
-          for (let i = lines.length - 1; i >= 0; i--) {
-            if (lines[i].startsWith('{')) { jsonStr = lines[i]; break; }
-          }
-          try {
-            const parsed = JSON.parse(jsonStr || stdout);
-            resolve({ success: true, data: parsed });
-          } catch {
-            console.error('[Format] Failed to parse stdout:', stdout.slice(0, 500));
-            resolve({ success: false, error: 'Failed to parse format result' });
-          }
-        } else {
-          console.error(`[Format] Process exited with code ${code}`);
-          if (stdout) console.error('[Format] stdout:', stdout.slice(0, 1000));
-          if (stderr) console.error('[Format] stderr:', stderr.slice(0, 1000));
-          resolve({ success: false, error: stderr || stdout || `Format process exited with code ${code}` });
-        }
-      });
-
-      proc.on('error', (err) => {
-        console.error('[Format] Spawn error:', err.message);
-        resolve({ success: false, error: err.message });
-      });
+    console.log(`[Format] Calling HTTP server: ${config.acestep.apiUrl}/format_input`);
+    const apiRes = await fetch(`${config.acestep.apiUrl}/format_input`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: caption, lyrics: lyrics || '', temperature: temperature ?? 0.85, param_obj: paramObj }),
+      signal: AbortSignal.timeout(300_000),
     });
 
-    if (result.success && result.data) {
-      res.json(result.data);
-    } else {
-      console.error('[Format] Python error:', result.error);
-      res.status(500).json({ success: false, error: result.error });
+    const apiData = await apiRes.json() as any;
+    if (!apiRes.ok) {
+      res.status(500).json({ success: false, error: apiData.error || `Format API returned ${apiRes.status}` });
+      return;
     }
+    const d = apiData.data ?? apiData;
+    res.json({ caption: d.caption, lyrics: d.lyrics, bpm: d.bpm, duration: d.duration,
+               key_scale: d.key_scale, time_signature: d.time_signature, vocal_language: d.vocal_language });
   } catch (error) {
     console.error('[Format] Route error:', error);
     res.status(500).json({ error: (error as Error).message });
