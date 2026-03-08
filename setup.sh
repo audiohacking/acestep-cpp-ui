@@ -37,6 +37,8 @@ elif [ -n "${ACESTEP_BIN:-}" ] && [ -x "$ACESTEP_BIN" ]; then
 else
   echo ""
   echo "Building acestep.cpp for your hardware (detects GPU automatically)..."
+  echo "  Repo:   ${ACESTEP_CPP_REPO:-https://github.com/audiohacking/acestep.cpp.git}"
+  [ -n "${ACESTEP_CPP_BRANCH:-}" ] && echo "  Branch: $ACESTEP_CPP_BRANCH"
   echo ""
   bash build.sh || {
     echo ""
@@ -45,6 +47,10 @@ else
     echo "    cmake -S acestep.cpp -B acestep.cpp/build -DCMAKE_BUILD_TYPE=Release"
     echo "    cmake --build acestep.cpp/build --parallel"
     echo "  Then set ACESTEP_BIN_DIR=$(pwd)/bin in .env"
+    echo ""
+    echo "  To use a custom fork or branch, set before running setup.sh:"
+    echo "    ACESTEP_CPP_REPO=https://github.com/your-fork/acestep.cpp.git ./setup.sh"
+    echo "    ACESTEP_CPP_BRANCH=my-branch ./setup.sh"
     echo ""
   }
 fi
