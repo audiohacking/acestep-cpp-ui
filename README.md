@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>Native C++ bundle for local AI music generation — now with 0% Python</strong><br>
+  <strong>Native C++ bundle for local AI music generation with 0% python</strong><br>
   <em>Powered by <a href="https://github.com/ServeurpersoCom/acestep.cpp">acestep.cpp</a> — the GGUF-native C++ inference engine for ACE-Step 1.5</em>
 </p>
 
