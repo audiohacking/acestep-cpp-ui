@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/🎵-ACE--Step_UI-ff69b4?style=for-the-badge&labelColor=1a1a1a" alt="ACE-Step UI" height="60">
-</p>
-
 <h1 align="center">acestep-cpp-ui</h1>
 
 <p align="center">
@@ -9,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Native C++ bundle for local AI music generation — with 0% Python</strong><br>
+  <strong>Native C++ bundle for local AI music generation — now with 0% Python</strong><br>
   <em>Powered by <a href="https://github.com/ServeurpersoCom/acestep.cpp">acestep.cpp</a> — the GGUF-native C++ inference engine for ACE-Step 1.5</em>
 </p>
 
