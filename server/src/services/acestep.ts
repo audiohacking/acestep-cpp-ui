@@ -313,21 +313,27 @@ function runBinary(
     proc.stderr.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       stderr += text;
-      if (onLine) {
-        lineBuf += text;
-        const lines = lineBuf.split('\n');
-        lineBuf = lines.pop() ?? '';
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed) onLine(trimmed);
-        }
+      lineBuf += text;
+      const lines = lineBuf.split('\n');
+      lineBuf = lines.pop() ?? '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed && onLine) onLine(trimmed);
       }
     });
 
     proc.on('close', (code) => {
+      // Flush any partial last line that didn't end with a newline
+      if (lineBuf.trim() && onLine) onLine(lineBuf.trim());
+      lineBuf = '';
+
       if (code === 0) {
         resolve({ stdout, stderr });
       } else {
+        // Always log the full binary output on failure so the error is visible
+        console.error(`[${label}] exited with code ${code ?? 'null (terminated by signal)'}`);
+        if (stderr) console.error(`[${label}] stderr:\n${stderr}`);
+        if (stdout) console.error(`[${label}] stdout:\n${stdout}`);
         reject(buildBinaryError(label, { exitCode: code, stdout, stderr }));
       }
     });
@@ -405,7 +411,10 @@ function makeLmProgressHandler(job: ActiveJob): (line: string) => void {
       const phase2Range = PROGRESS_LM_PHASE2_END - PROGRESS_LM_PHASE1_MAX;
       job.progress = PROGRESS_LM_PHASE1_MAX + Math.min(phase2Range, Math.round((codes / phase2MaxTokens) * phase2Range));
       job.stage    = `LLM: audio codes — ${codes}/${phase2MaxTokens} (${rate} tok/s)`;
+      return;
     }
+    // Any unrecognized line — log it so binary errors/warnings are always visible
+    console.log(`[ace-qwen3] ${line}`);
   };
 }
 
@@ -451,7 +460,10 @@ function makeDitVaeProgressHandler(job: ActiveJob): (line: string) => void {
     if (/^\[VAE\] Tiled decode done/.test(line)) {
       job.progress = PROGRESS_VAE_END;
       job.stage    = 'VAE: decode complete — writing audio…';
+      return;
     }
+    // Any unrecognized line — log it so binary errors/warnings are always visible
+    console.log(`[dit-vae] ${line}`);
   };
 }
 
