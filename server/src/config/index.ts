@@ -224,10 +224,11 @@ export const config = {
 
   storage: {
     provider: 'local' as const,
-    // Audio directory must match where LocalStorageProvider writes files and
-    // where Express serves /audio/ from (server/src/index.ts: '../public/audio').
-    // Both resolve to <server_root>/public/audio, so we use SERVER_ROOT here.
-    // AUDIO_DIR env override is still supported (resolved against APP_ROOT).
+    // Single source of truth for the audio directory.
+    // LocalStorageProvider, Express (/audio/), and the spawn service all read
+    // this value so they always point at the same filesystem location.
+    // Default: <server_root>/public/audio (SERVER_ROOT = server/).
+    // Override via AUDIO_DIR in .env (relative paths are resolved from APP_ROOT).
     audioDir: resolveFromRoot(process.env.AUDIO_DIR || path.join(SERVER_ROOT, 'public', 'audio')),
   },
 

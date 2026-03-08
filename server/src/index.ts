@@ -79,8 +79,9 @@ app.use(cors({
 
 app.use(express.json());
 
-// Serve static audio files
-app.use('/audio', express.static(path.join(__dirname, '../public/audio')));
+// Serve static audio files from the configured audio directory so that any
+// AUDIO_DIR env override is honoured consistently across upload, spawn, and serving.
+app.use('/audio', express.static(config.storage.audioDir));
 
 // Audio Editor (AudioMass) - needs relaxed CSP for inline scripts and external images
 app.use('/editor', (req, res, next) => {

@@ -254,49 +254,6 @@ function resolveAudioPath(audioUrl: string): string {
   return audioUrl;
 }
 
-/**
- * Ensures the audio file at the given path is in PCM WAV format, which is
- * required by the dit-vae binary for the --src-audio argument.
- *
- * If the file is already a WAV it is returned as-is.  Any other format
- * (MP3, FLAC, M4A, AAC, …) is converted with ffmpeg and the resulting WAV
- * file is placed in tmpDir.  The converted path is returned.
- */
-async function ensureWavFormat(audioPath: string, tmpDir: string): Promise<string> {
-  const ext = path.extname(audioPath).toLowerCase();
-  if (ext === '.wav') return audioPath;
-
-  const outPath = path.join(tmpDir, 'src_audio_converted.wav');
-  console.log(`[Audio] Converting ${ext} → WAV: ${audioPath} → ${outPath}`);
-
-  await new Promise<void>((resolve, reject) => {
-    const proc = spawn('ffmpeg', [
-      '-y',              // overwrite output without asking
-      '-i', audioPath,   // input file (any format ffmpeg supports)
-      '-vn',             // drop any video stream
-      '-acodec', 'pcm_s16le',  // 16-bit PCM — universally readable WAV
-      outPath,
-    ], { stdio: 'pipe' });
-
-    let stderr = '';
-    proc.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-    proc.on('error', (err) => {
-      reject(new Error(`ffmpeg not found or failed to start: ${err.message}`));
-    });
-    proc.on('close', (code) => {
-      if (code === 0) {
-        console.log(`[Audio] Converted to WAV successfully: ${outPath}`);
-        resolve();
-      } else {
-        console.error(`[Audio] Failed to convert ${ext} to WAV: ${audioPath}`);
-        reject(new Error(`ffmpeg exited with code ${code} converting "${audioPath}":\n${stderr.slice(-1000)}`));
-      }
-    });
-  });
-
-  return outPath;
-}
-
 // ---------------------------------------------------------------------------
 // Spawn mode: run these step.cpp binaries in a two-step pipeline
 //   Step 1: ace-qwen3  — LLM generates lyrics + audio codes from caption
@@ -684,10 +641,9 @@ async function runViaSpawn(
     if (batchSize > 1) ditArgs.push('--batch', String(batchSize));
 
     // Cover and repaint modes both require a source audio file.
-    // dit-vae can only read WAV; convert MP3/FLAC/etc. to PCM WAV first.
+    // dit-vae reads WAV or MP3 natively (via dr_wav / dr_mp3 in audio.h).
     if (params.sourceAudioUrl) {
-      const resolvedPath = resolveAudioPath(params.sourceAudioUrl);
-      const srcAudioPath = await ensureWavFormat(resolvedPath, tmpDir);
+      const srcAudioPath = resolveAudioPath(params.sourceAudioUrl);
       ditArgs.push('--src-audio', srcAudioPath);
     }
     ditArgs.push(...parseExtraArgs(process.env.DIT_VAE_EXTRA_ARGS));
