@@ -502,7 +502,9 @@ async function runViaSpawn(
     `\n  steps         = ${params.inferenceSteps ?? 8}` +
     `\n  guidance      = ${params.guidanceScale ?? 0.0}` +
     `\n  shift         = ${params.shift ?? 3.0}` +
-    `\n  skipLm        = ${skipLm}`
+    `\n  skipLm        = ${skipLm}` +
+    `\n  lora          = ${loraState.loaded && loraState.active ? loraState.path : 'none'}` +
+    `\n  loraScale     = ${loraState.loaded && loraState.active ? loraState.scale : 'n/a'}`
   );
 
   try {
@@ -646,6 +648,13 @@ async function runViaSpawn(
       const srcAudioPath = resolveAudioPath(params.sourceAudioUrl);
       ditArgs.push('--src-audio', srcAudioPath);
     }
+
+    // LoRA adapter: inject --lora and --lora-scale when a LoRA is loaded and active.
+    if (loraState.loaded && loraState.active && loraState.path) {
+      ditArgs.push('--lora', loraState.path);
+      ditArgs.push('--lora-scale', String(loraState.scale));
+    }
+
     ditArgs.push(...parseExtraArgs(process.env.DIT_VAE_EXTRA_ARGS));
 
     console.log(`[Job ${jobId}] Running dit-vae:\n  ${ditVaeBin} ${ditArgs.join(' ')}`);
