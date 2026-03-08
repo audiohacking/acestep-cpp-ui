@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Sparkles, ChevronDown, Settings2, Trash2, Music2, Sliders, Dices, Hash, RefreshCw, Plus, Upload, Play, Pause, Loader2 } from 'lucide-react';
+import { Sparkles, ChevronDown, Settings2, Trash2, Music2, Sliders, Dices, Hash, RefreshCw, Plus, Upload, Play, Pause, Loader2, AlertTriangle, CheckCircle2, ExternalLink } from 'lucide-react';
 import { GenerationParams, Song } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
@@ -237,6 +237,11 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   // Available models fetched from backend
   const [fetchedModels, setFetchedModels] = useState<{ name: string; is_active: boolean; is_preloaded: boolean }[]>([]);
 
+  // The SFT DiT model name — required for repaint mode
+  const SFT_MODEL_NAME = 'acestep-v15-sft';
+  // The SFT model GGUF file to download when not present (Q8_0 is the default quality tier)
+  const SFT_MODEL_FILE = 'acestep-v15-sft-Q8_0.gguf';
+
   // Fallback model list when backend is unavailable
   const availableModels = useMemo(() => {
     if (fetchedModels.length > 0) {
@@ -244,7 +249,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     }
     return [
       { id: 'acestep-v15-base', name: 'acestep-v15-base' },
-      { id: 'acestep-v15-sft', name: 'acestep-v15-sft' },
+      { id: SFT_MODEL_NAME, name: SFT_MODEL_NAME },
       { id: 'acestep-v15-turbo', name: 'acestep-v15-turbo' },
       { id: 'acestep-v15-turbo-shift1', name: 'acestep-v15-turbo-shift1' },
       { id: 'acestep-v15-turbo-shift3', name: 'acestep-v15-turbo-shift3' },
@@ -269,6 +274,16 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const isTurboModel = (modelId: string): boolean => {
     return modelId.includes('turbo');
   };
+
+  // Check if model is an SFT variant (required for repaint)
+  const isSftModel = (modelId: string): boolean => {
+    return modelId.includes('sft');
+  };
+
+  // SFT model download/availability state for repaint mode
+  type SftStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'unavailable';
+  const [sftStatus, setSftStatus] = useState<SftStatus>('idle');
+  const sftSseRef = useRef<EventSource | null>(null);
 
   const [isUploadingReference, setIsUploadingReference] = useState(false);
   const [isUploadingSource, setIsUploadingSource] = useState(false);
@@ -574,6 +589,90 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       // ignore - will use fallback model list
     }
   }, []);
+
+  // Check if the SFT model is on disk and download it if needed.
+  // Called automatically when repaint mode is selected.
+  const checkAndEnsureSftModel = useCallback(async () => {
+    setSftStatus('checking');
+    try {
+      const statusRes = await fetch('/api/models/status');
+      if (!statusRes.ok) { setSftStatus('unavailable'); return; }
+      const statusData = await statusRes.json();
+      const onDisk: string[] = statusData.onDisk || [];
+      const hasSft = onDisk.some((f: string) => f.startsWith(SFT_MODEL_NAME));
+
+      if (hasSft) {
+        setSftStatus('available');
+        return;
+      }
+
+      // SFT model not on disk — trigger download if authenticated
+      if (!token) { setSftStatus('unavailable'); return; }
+
+      setSftStatus('downloading');
+      // Enqueue download of the Q8_0 SFT DiT model
+      await fetch('/api/models/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ files: [SFT_MODEL_FILE] }),
+      });
+
+      // Subscribe to SSE stream to detect when download completes
+      if (sftSseRef.current) sftSseRef.current.close();
+      const es = new EventSource('/api/models/download/stream');
+      sftSseRef.current = es;
+      const onDone = (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.filename?.startsWith(SFT_MODEL_NAME)) {
+            setSftStatus('available');
+            es.close();
+            sftSseRef.current = null;
+          }
+        } catch { /* ignore */ }
+      };
+      const onError = () => {
+        setSftStatus('unavailable');
+        es.close();
+        sftSseRef.current = null;
+      };
+      es.addEventListener('done', onDone);
+      es.addEventListener('error', onError);
+    } catch {
+      setSftStatus('unavailable');
+    }
+  }, [token]);
+
+  // Auto-switch to SFT model when repaint mode is selected and back to previous model otherwise
+  const prevTaskTypeRef = useRef(taskType);
+  const prevModelBeforeRepaintRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prevTaskType = prevTaskTypeRef.current;
+    prevTaskTypeRef.current = taskType;
+
+    if (taskType === 'repaint') {
+      // Entering repaint mode: switch to SFT model if not already on one
+      if (!isSftModel(selectedModel)) {
+        prevModelBeforeRepaintRef.current = selectedModel;
+        setSelectedModel(SFT_MODEL_NAME);
+        localStorage.setItem('ace-model', SFT_MODEL_NAME);
+      }
+      // Check/download SFT model
+      void checkAndEnsureSftModel();
+    } else if (prevTaskType === 'repaint') {
+      // Leaving repaint mode: restore previous model if it was switched
+      if (sftSseRef.current) { sftSseRef.current.close(); sftSseRef.current = null; }
+      setSftStatus('idle');
+      if (prevModelBeforeRepaintRef.current && isSftModel(selectedModel)) {
+        setSelectedModel(prevModelBeforeRepaintRef.current);
+        localStorage.setItem('ace-model', prevModelBeforeRepaintRef.current);
+        prevModelBeforeRepaintRef.current = null;
+      }
+    }
+  }, [taskType, checkAndEnsureSftModel]);
+
+  // Clean up SSE on unmount
+  useEffect(() => () => { sftSseRef.current?.close(); }, []);
 
   useEffect(() => {
     const loadModelsAndLimits = async () => {
@@ -917,6 +1016,35 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60);
     return `${minutes}:${String(seconds).padStart(2, '0')}`;
+  };
+
+  /** Clear the source audio and reset task type if it was cover/repaint. */
+  const handleClearSourceAudio = () => {
+    setSourceAudioUrl('');
+    setSourceAudioTitle('');
+    setSourcePlaying(false);
+    setSourceTime(0);
+    setSourceDuration(0);
+    if (taskType === 'cover' || taskType === 'repaint') setTaskType('text2music');
+  };
+
+  /**
+   * Returns a green overlay element indicating the repaint region on the seekbar.
+   * Rendered only when taskType === 'repaint' and sourceDuration > 0.
+   */
+  const renderRepaintRegionOverlay = () => {
+    if (taskType !== 'repaint' || sourceDuration <= 0) return null;
+    const regionStart = Math.max(0, repaintingStart >= 0 ? repaintingStart : 0);
+    const regionEnd   = Math.min(sourceDuration, repaintingEnd >= 0 ? repaintingEnd : sourceDuration);
+    return (
+      <div
+        className="absolute inset-y-0 bg-emerald-400/40 dark:bg-emerald-400/30 rounded-full pointer-events-none"
+        style={{
+          left:  `${(regionStart / sourceDuration) * 100}%`,
+          width: `${Math.max(0, (regionEnd - regionStart) / sourceDuration) * 100}%`,
+        }}
+      />
+    );
   };
 
   const toggleAudio = (target: 'reference' | 'source') => {
@@ -1280,6 +1408,221 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               </div>
             </div>
 
+            {/* Source Audio — Cover / Repaint (Simple Mode) */}
+            <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden">
+              <div className="px-3 py-2.5 border-b border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-white/[0.02]">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">
+                    {t('cover')} / {t('repaintMode')}
+                  </span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-200 dark:bg-white/10 text-zinc-500 dark:text-zinc-400 font-medium uppercase">
+                    optional
+                  </span>
+                </div>
+              </div>
+              <div className="p-3 space-y-2">
+                {/* Source audio mini-player */}
+                {sourceAudioUrl && (
+                  <div className="flex items-center gap-3 p-2 rounded-lg bg-zinc-50 dark:bg-white/[0.03] border border-zinc-100 dark:border-white/5">
+                    <button
+                      type="button"
+                      onClick={() => toggleAudio('source')}
+                      className="relative flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shadow-lg shadow-emerald-500/20 hover:scale-105 transition-transform"
+                    >
+                      {sourcePlaying ? (
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>
+                      ) : (
+                        <svg className="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                      )}
+                      <span className="absolute -bottom-1 -right-1 text-[8px] font-bold bg-zinc-900 text-white px-1 py-0.5 rounded">
+                        {formatTime(sourceDuration)}
+                      </span>
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 truncate mb-1.5">
+                        {sourceAudioTitle || getAudioLabel(sourceAudioUrl)}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-zinc-400 tabular-nums">{formatTime(sourceTime)}</span>
+                        <div
+                          className="relative flex-1 h-1.5 rounded-full bg-zinc-200 dark:bg-white/10 cursor-pointer group/seek"
+                          onClick={(e) => {
+                            if (sourceAudioRef.current && sourceDuration > 0) {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const percent = (e.clientX - rect.left) / rect.width;
+                              sourceAudioRef.current.currentTime = percent * sourceDuration;
+                            }
+                          }}
+                        >
+                          {/* Repaint region overlay */}
+                          {renderRepaintRegionOverlay()}
+                          <div
+                            className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all relative"
+                            style={{ width: sourceDuration ? `${Math.min(100, (sourceTime / sourceDuration) * 100)}%` : '0%' }}
+                          >
+                            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-white shadow-md opacity-0 group-hover/seek:opacity-100 transition-opacity" />
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-zinc-400 tabular-nums">{formatTime(sourceDuration)}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleClearSourceAudio}
+                      className="p-1.5 rounded-full hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-400 hover:text-zinc-600 dark:hover:text-white transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                )}
+
+                {/* Cover / Repaint mode controls — shown when source audio is loaded */}
+                {sourceAudioUrl && (
+                  <div className="space-y-2">
+                    {/* Mode toggle */}
+                    <div className="flex items-center gap-1 bg-zinc-100 dark:bg-black/20 rounded-lg p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setTaskType('cover')}
+                        className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                          taskType !== 'repaint'
+                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
+                            : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                        }`}
+                      >
+                        {t('coverMode')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTaskType('repaint')}
+                        className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                          taskType === 'repaint'
+                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
+                            : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                        }`}
+                      >
+                        {t('repaintMode')}
+                      </button>
+                    </div>
+
+                    {/* Mode description */}
+                    <p className="text-[10px] text-zinc-400 dark:text-zinc-500 px-0.5">
+                      {taskType === 'repaint' ? t('repaintModeDescription') : t('coverModeDescription')}
+                    </p>
+
+                    {/* Cover strength slider (cover mode only) */}
+                    {taskType !== 'repaint' && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] text-zinc-500 dark:text-zinc-400 whitespace-nowrap">{t('audioCoverStrength')}</label>
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={audioCoverStrength}
+                          onChange={(e) => setAudioCoverStrength(Number(e.target.value))}
+                          className="flex-1 h-1.5 accent-emerald-500"
+                        />
+                        <span className="text-[10px] text-zinc-400 tabular-nums w-7 text-right">{audioCoverStrength.toFixed(2)}</span>
+                      </div>
+                    )}
+
+                    {/* Repaint time range (repaint mode only) */}
+                    {taskType === 'repaint' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                            {t('repaintStart')}
+                            {sourceDuration > 0 && <span className="text-zinc-400 ml-1">(max {formatTime(sourceDuration)})</span>}
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max={sourceDuration > 0 ? sourceDuration : undefined}
+                            placeholder={t('repaintStartPlaceholder')}
+                            value={repaintingStart >= 0 ? repaintingStart : ''}
+                            onChange={(e) => setRepaintingStart(e.target.value === '' ? -1 : Number(e.target.value))}
+                            className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500 dark:focus:border-emerald-500 transition-colors"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                            {t('repaintEnd')}
+                            {sourceDuration > 0 && <span className="text-zinc-400 ml-1">(max {formatTime(sourceDuration)})</span>}
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max={sourceDuration > 0 ? sourceDuration : undefined}
+                            placeholder={t('repaintEndPlaceholder')}
+                            value={repaintingEnd >= 0 ? repaintingEnd : ''}
+                            onChange={(e) => setRepaintingEnd(e.target.value === '' ? -1 : Number(e.target.value))}
+                            className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500 dark:focus:border-emerald-500 transition-colors"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* SFT model status banner (repaint only) */}
+                    {taskType === 'repaint' && sftStatus !== 'idle' && (
+                      <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-medium ${
+                        sftStatus === 'available'
+                          ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
+                          : sftStatus === 'downloading' || sftStatus === 'checking'
+                          ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'
+                          : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                      }`}>
+                        {sftStatus === 'available' && <CheckCircle2 size={13} />}
+                        {(sftStatus === 'downloading' || sftStatus === 'checking') && <Loader2 size={13} className="animate-spin" />}
+                        {sftStatus === 'unavailable' && <AlertTriangle size={13} />}
+                        <span className="flex-1">
+                          {sftStatus === 'available' && t('sftModelReady')}
+                          {sftStatus === 'checking' && t('sftModelRequired')}
+                          {sftStatus === 'downloading' && t('sftModelDownloading')}
+                          {sftStatus === 'unavailable' && t('sftModelNotFound')}
+                        </span>
+                        {sftStatus === 'unavailable' && (
+                          <a
+                            href="/models"
+                            onClick={(e) => { e.preventDefault(); window.history.pushState({}, '', '/models'); window.dispatchEvent(new PopStateEvent('popstate')); }}
+                            className="flex items-center gap-0.5 underline underline-offset-2"
+                          >
+                            Models <ExternalLink size={10} />
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Upload / Library buttons */}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openAudioModal('source', 'uploads')}
+                    className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-700 dark:text-zinc-300 px-3 py-2 text-xs font-medium transition-colors border border-zinc-200 dark:border-white/5"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
+                    </svg>
+                    {t('fromLibrary')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => sourceInputRef.current?.click()}
+                    className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-700 dark:text-zinc-300 px-3 py-2 text-xs font-medium transition-colors border border-zinc-200 dark:border-white/5"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                    </svg>
+                    {t('upload')}
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* Quick Settings (Simple Mode) */}
             <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 p-4 space-y-4">
               <h3 className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide flex items-center gap-2">
@@ -1486,7 +1829,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] text-zinc-400 tabular-nums">{formatTime(sourceTime)}</span>
                         <div
-                          className="flex-1 h-1.5 rounded-full bg-zinc-200 dark:bg-white/10 cursor-pointer group/seek"
+                          className="relative flex-1 h-1.5 rounded-full bg-zinc-200 dark:bg-white/10 cursor-pointer group/seek"
                           onClick={(e) => {
                             if (sourceAudioRef.current && sourceDuration > 0) {
                               const rect = e.currentTarget.getBoundingClientRect();
@@ -1495,6 +1838,8 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                             }
                           }}
                         >
+                          {/* Repaint region overlay */}
+                          {renderRepaintRegionOverlay()}
                           <div
                             className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all relative"
                             style={{ width: sourceDuration ? `${Math.min(100, (sourceTime / sourceDuration) * 100)}%` : '0%' }}
@@ -1507,11 +1852,132 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     </div>
                     <button
                       type="button"
-                      onClick={() => { setSourceAudioUrl(''); setSourceAudioTitle(''); setSourcePlaying(false); setSourceTime(0); setSourceDuration(0); }}
+                      onClick={handleClearSourceAudio}
                       className="p-1.5 rounded-full hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-400 hover:text-zinc-600 dark:hover:text-white transition-colors"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
+                  </div>
+                )}
+
+                {/* Cover / Repaint mode toggle (shown when source audio is loaded) */}
+                {audioTab === 'source' && sourceAudioUrl && (
+                  <div className="space-y-2">
+                    {/* Mode toggle: Cover vs Repaint */}
+                    <div className="flex items-center gap-1 bg-zinc-100 dark:bg-black/20 rounded-lg p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setTaskType('cover')}
+                        className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                          taskType !== 'repaint'
+                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
+                            : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                        }`}
+                      >
+                        {t('coverMode')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTaskType('repaint')}
+                        className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                          taskType === 'repaint'
+                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
+                            : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                        }`}
+                      >
+                        {t('repaintMode')}
+                      </button>
+                    </div>
+
+                    {/* Mode description */}
+                    <p className="text-[10px] text-zinc-400 dark:text-zinc-500 px-0.5">
+                      {taskType === 'repaint' ? t('repaintModeDescription') : t('coverModeDescription')}
+                    </p>
+
+                    {/* Cover strength slider (only in cover mode) */}
+                    {taskType !== 'repaint' && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] text-zinc-500 dark:text-zinc-400 whitespace-nowrap">{t('audioCoverStrength')}</label>
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={audioCoverStrength}
+                          onChange={(e) => setAudioCoverStrength(Number(e.target.value))}
+                          className="flex-1 h-1.5 accent-emerald-500"
+                        />
+                        <span className="text-[10px] text-zinc-400 tabular-nums w-7 text-right">{audioCoverStrength.toFixed(2)}</span>
+                      </div>
+                    )}
+
+                    {/* Repaint time range (only in repaint mode) */}
+                    {taskType === 'repaint' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                            {t('repaintStart')}
+                            {sourceDuration > 0 && <span className="text-zinc-400 ml-1">(max {formatTime(sourceDuration)})</span>}
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max={sourceDuration > 0 ? sourceDuration : undefined}
+                            placeholder={t('repaintStartPlaceholder')}
+                            value={repaintingStart >= 0 ? repaintingStart : ''}
+                            onChange={(e) => setRepaintingStart(e.target.value === '' ? -1 : Number(e.target.value))}
+                            className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500 dark:focus:border-emerald-500 transition-colors"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                            {t('repaintEnd')}
+                            {sourceDuration > 0 && <span className="text-zinc-400 ml-1">(max {formatTime(sourceDuration)})</span>}
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max={sourceDuration > 0 ? sourceDuration : undefined}
+                            placeholder={t('repaintEndPlaceholder')}
+                            value={repaintingEnd >= 0 ? repaintingEnd : ''}
+                            onChange={(e) => setRepaintingEnd(e.target.value === '' ? -1 : Number(e.target.value))}
+                            className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500 dark:focus:border-emerald-500 transition-colors"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* SFT model status banner (shown when repaint mode active) */}
+                    {taskType === 'repaint' && sftStatus !== 'idle' && (
+                      <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-medium ${
+                        sftStatus === 'available'
+                          ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
+                          : sftStatus === 'downloading' || sftStatus === 'checking'
+                          ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'
+                          : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                      }`}>
+                        {sftStatus === 'available' && <CheckCircle2 size={13} />}
+                        {(sftStatus === 'downloading' || sftStatus === 'checking') && <Loader2 size={13} className="animate-spin" />}
+                        {sftStatus === 'unavailable' && <AlertTriangle size={13} />}
+                        <span className="flex-1">
+                          {sftStatus === 'available' && t('sftModelReady')}
+                          {sftStatus === 'checking' && t('sftModelRequired')}
+                          {sftStatus === 'downloading' && t('sftModelDownloading')}
+                          {sftStatus === 'unavailable' && t('sftModelNotFound')}
+                        </span>
+                        {sftStatus === 'unavailable' && (
+                          <a
+                            href="/models"
+                            onClick={(e) => { e.preventDefault(); window.history.pushState({}, '', '/models'); window.dispatchEvent(new PopStateEvent('popstate')); }}
+                            className="flex items-center gap-0.5 underline underline-offset-2"
+                          >
+                            Models <ExternalLink size={10} />
+                          </a>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 

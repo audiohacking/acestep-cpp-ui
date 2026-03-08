@@ -134,13 +134,13 @@ let isProcessingQueue = false;
  * Returns true when the spawn-mode binaries satisfy the requirements for
  * the given generation parameters.
  *
- * - Cover/passthrough (sourceAudioUrl or audioCodes): only dit-vae is needed;
- *   ace-qwen3 is skipped because the audio codes come from the source audio.
+ * - Cover/repaint/passthrough (sourceAudioUrl or audioCodes): only dit-vae is needed;
+ *   ace-qwen3 is skipped because the audio is derived from the source audio or codes.
  * - Text-to-music: both ace-qwen3 (LLM) and dit-vae (synthesis) are required.
  */
 function useSpawnMode(params?: Pick<GenerationParams, 'sourceAudioUrl' | 'audioCodes'>): boolean {
   if (!config.acestep.ditVaeBin) return false;
-  // Cover / passthrough: only dit-vae is needed — no LLM step
+  // Cover / repaint / passthrough: only dit-vae is needed — no LLM step
   if (params?.sourceAudioUrl || params?.audioCodes) return true;
   // Text-to-music: need ace-qwen3 too
   return Boolean(config.acestep.lmBin);
@@ -478,7 +478,17 @@ async function runViaSpawn(
     // Passthrough: skip the LLM when audio codes are already provided
     if (params.audioCodes)                requestJson.audio_codes   = params.audioCodes;
     // Cover/audio-to-audio: strength of the source audio influence on the output
-    if (params.audioCoverStrength !== undefined) requestJson.audio_cover_strength = params.audioCoverStrength;
+    // (ignored in repaint mode — the mask handles everything)
+    if (params.audioCoverStrength !== undefined && params.taskType !== 'repaint') {
+      requestJson.audio_cover_strength = params.audioCoverStrength;
+    }
+    // Repaint mode: regenerate a time region while preserving the rest.
+    // Activated by setting repainting_start and/or repainting_end in the JSON.
+    // Both default to -1 (inactive): -1 on start means 0s, -1 on end means source duration.
+    if (params.taskType === 'repaint' && params.sourceAudioUrl) {
+      requestJson.repainting_start = params.repaintingStart ?? -1;
+      requestJson.repainting_end   = params.repaintingEnd   ?? -1;
+    }
 
     const requestPath = path.join(tmpDir, 'request.json');
     await writeFile(requestPath, JSON.stringify(requestJson, null, 2));
@@ -837,6 +847,12 @@ async function processGeneration(
       !params.sourceAudioUrl && !params.audioCodes) {
     job.status = 'failed';
     job.error  = `task_type='${params.taskType}' requires a source audio or audio codes`;
+    return;
+  }
+
+  if (params.taskType === 'repaint' && !params.sourceAudioUrl) {
+    job.status = 'failed';
+    job.error  = "task_type='repaint' requires a source audio (--src-audio)";
     return;
   }
 
