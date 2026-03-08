@@ -17,7 +17,7 @@
 
 ## 🎯 About This Fork
 
-**acestep-cpp-ui** is a fork of the original ace-step-ui project that replaces the Python/Gradio backend with a native C++ inference engine — [acestep.cpp](https://github.com/ServeurpersoCom/acestep.cpp).
+**acestep-cpp-ui** is a fork of the original ace-step-ui project that replaces the Python/Gradio backend with [acestep.cpp](https://github.com/ServeurpersoCom/acestep.cpp).
 
 - **No Python environment to manage** — just build once and run
 - **GGUF quantization** — run larger models with less VRAM
