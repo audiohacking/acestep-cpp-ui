@@ -13,6 +13,11 @@ const __dirname  = path.dirname(__filename);
 //   release: <bundle>/server/dist/config/ → ../../.. → <bundle>/
 const APP_ROOT = path.resolve(__dirname, '../../..');
 
+// Server root = two levels above this file (always the server/ directory):
+//   dev:     <repo>/server/src/config/ → ../.. → <repo>/server/
+//   release: <bundle>/server/dist/config/ → ../.. → <bundle>/server/
+const SERVER_ROOT = path.resolve(__dirname, '../..');
+
 // ── Path helpers ─────────────────────────────────────────────────────────────
 
 /**
@@ -219,7 +224,11 @@ export const config = {
 
   storage: {
     provider: 'local' as const,
-    audioDir: resolveFromRoot(process.env.AUDIO_DIR || path.join(APP_ROOT, 'public', 'audio')),
+    // Audio directory must match where LocalStorageProvider writes files and
+    // where Express serves /audio/ from (server/src/index.ts: '../public/audio').
+    // Both resolve to <server_root>/public/audio, so we use SERVER_ROOT here.
+    // AUDIO_DIR env override is still supported (resolved against APP_ROOT).
+    audioDir: resolveFromRoot(process.env.AUDIO_DIR || path.join(SERVER_ROOT, 'public', 'audio')),
   },
 
   jwt: {

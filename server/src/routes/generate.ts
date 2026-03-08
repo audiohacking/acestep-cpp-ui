@@ -270,10 +270,26 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       return;
     }
 
-    if (customMode && !style && !lyrics && !referenceAudioUrl) {
+    // In custom mode, at least one content field is required — unless the request
+    // is for cover, audio2audio, or repaint mode and a source audio is provided
+    // (the source audio itself is the primary input; style/lyrics are optional).
+    const requiresSourceAudio = taskType === 'cover' || taskType === 'audio2audio' || taskType === 'repaint';
+    if (customMode && !style && !lyrics && !referenceAudioUrl && !(requiresSourceAudio && sourceAudioUrl)) {
       res.status(400).json({ error: 'Style, lyrics, or reference audio required for custom mode' });
       return;
     }
+
+    // Debug log: show what the API client sent
+    console.log(
+      `[API] POST /generate:` +
+      `\n  taskType    = ${taskType || 'text2music'}` +
+      `\n  customMode  = ${customMode}` +
+      `\n  ditModel    = ${ditModel || '(default)'}` +
+      `\n  sourceAudio = ${sourceAudioUrl || 'none'}` +
+      `\n  repaint     = [${repaintingStart ?? 'start'}, ${repaintingEnd ?? 'end'}]` +
+      `\n  coverStr    = ${audioCoverStrength ?? 'n/a'}` +
+      `\n  user        = ${req.user!.id}`
+    );
 
     const params = {
       customMode,
