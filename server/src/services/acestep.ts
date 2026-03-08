@@ -640,7 +640,8 @@ async function runViaSpawn(
     const batchSize = Math.min(Math.max(params.batchSize ?? 1, 1), 8);
     if (batchSize > 1) ditArgs.push('--batch', String(batchSize));
 
-    // Cover and repaint modes both require a source audio file
+    // Cover and repaint modes both require a source audio file.
+    // dit-vae reads WAV or MP3 natively (via dr_wav / dr_mp3 in audio.h).
     if (params.sourceAudioUrl) {
       const srcAudioPath = resolveAudioPath(params.sourceAudioUrl);
       ditArgs.push('--src-audio', srcAudioPath);
