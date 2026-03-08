@@ -1,3 +1,7 @@
+<p align="center">
+  <img width="250" alt="image" src="https://github.com/user-attachments/assets/0b34f9e0-9323-4032-96d1-5837aaca18af" />
+</p>
+
 <h1 align="center">acestep-cpp-ui</h1>
 
 <p align="center">
