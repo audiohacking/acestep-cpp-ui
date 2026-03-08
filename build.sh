@@ -10,7 +10,8 @@
 #   --rocm         force ROCm/HIP build
 #   --vulkan       force Vulkan build
 #   --cpu          CPU-only build (disable GPU auto-detection)
-#   --repo URL     override the git repository to clone
+#   --repo URL     override the git repository to clone (env: ACESTEP_CPP_REPO)
+#   --branch NAME  checkout a specific branch/tag after cloning (env: ACESTEP_CPP_BRANCH)
 
 set -e
 
@@ -19,6 +20,7 @@ SRC_DIR="${ACESTEP_CPP_SRC:-$DIR/acestep.cpp}"
 BIN_DIR="${ACESTEP_BIN_DIR:-$DIR/bin}"
 BUILD_DIR="$SRC_DIR/build"
 REPO="${ACESTEP_CPP_REPO:-https://github.com/audiohacking/acestep.cpp.git}"
+BRANCH="${ACESTEP_CPP_BRANCH:-}"
 FORCE_FLAGS=""
 CPU_ONLY=0
 
@@ -28,6 +30,7 @@ while [ $# -gt 0 ]; do
         --src)    SRC_DIR="$2"; BUILD_DIR="$SRC_DIR/build"; shift ;;
         --bin)    BIN_DIR="$2"; shift ;;
         --repo)   REPO="$2"; shift ;;
+        --branch) BRANCH="$2"; shift ;;
         --cuda)   FORCE_FLAGS="-DGGML_CUDA=ON" ;;
         --rocm)   FORCE_FLAGS="-DGGML_HIP=ON" ;;
         --vulkan) FORCE_FLAGS="-DGGML_VULKAN=ON" ;;
@@ -60,8 +63,13 @@ fi
 
 # ── Clone or update acestep.cpp ───────────────────────────────────────────────
 if [ ! -d "$SRC_DIR/.git" ]; then
-    echo "Cloning acestep.cpp from $REPO ..."
-    git clone --depth 1 "$REPO" "$SRC_DIR"
+    if [ -n "$BRANCH" ]; then
+        echo "Cloning acestep.cpp from $REPO (branch: $BRANCH) ..."
+        git clone --depth 1 --branch "$BRANCH" "$REPO" "$SRC_DIR"
+    else
+        echo "Cloning acestep.cpp from $REPO ..."
+        git clone --depth 1 "$REPO" "$SRC_DIR"
+    fi
     echo ""
 else
     echo "acestep.cpp source found at $SRC_DIR"
