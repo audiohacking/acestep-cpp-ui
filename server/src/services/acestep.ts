@@ -220,18 +220,37 @@ function resolveParamDitModel(name: string | undefined): string {
 // Audio path resolution (for reference/source audio inputs)
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolves a UI audio URL (e.g. "/audio/reference-tracks/user/file.mp3") or
+ * an absolute filesystem path to the local filesystem path that the spawned
+ * binary can open.
+ *
+ * Supported input formats:
+ *  • "/audio/<rest>"           — relative public URL; joined with AUDIO_DIR
+ *                                (covers reference-tracks/, generated songs, etc.)
+ *  • "http[s]://host/audio/…"  — absolute URL whose path starts with /audio/
+ *  • Any other absolute path   — returned as-is
+ */
 function resolveAudioPath(audioUrl: string): string {
+  // Relative public URL produced by the UI player or upload endpoint
   if (audioUrl.startsWith('/audio/')) {
-    return path.join(AUDIO_DIR, audioUrl.replace('/audio/', ''));
+    const resolved = path.join(AUDIO_DIR, audioUrl.slice('/audio/'.length));
+    console.log(`[resolveAudio] ${audioUrl} → ${resolved}`);
+    return resolved;
   }
-  if (audioUrl.startsWith('http')) {
+  // Full HTTP URL — extract the path component and try again
+  if (audioUrl.startsWith('http://') || audioUrl.startsWith('https://')) {
     try {
       const parsed = new URL(audioUrl);
       if (parsed.pathname.startsWith('/audio/')) {
-        return path.join(AUDIO_DIR, parsed.pathname.replace('/audio/', ''));
+        const resolved = path.join(AUDIO_DIR, parsed.pathname.slice('/audio/'.length));
+        console.log(`[resolveAudio] ${audioUrl} → ${resolved}`);
+        return resolved;
       }
     } catch { /* fall through */ }
   }
+  // Already an absolute filesystem path — pass through
+  console.log(`[resolveAudio] ${audioUrl} → (absolute path, no change)`);
   return audioUrl;
 }
 
@@ -446,61 +465,105 @@ async function runViaSpawn(
   const tmpDir = path.join(AUDIO_DIR, `_tmp_${jobId}`);
   await mkdir(tmpDir, { recursive: true });
 
+  // ── Determine generation mode ────────────────────────────────────────────
+  // Explicit task type drives mode selection; source audio / audio codes act
+  // as secondary signals for backward compatibility.
+  const taskType    = params.taskType || 'text2music';
+  const isCover     = taskType === 'cover' || taskType === 'audio2audio';
+  const isRepaint   = taskType === 'repaint';
+  // Passthrough: taskType explicitly set, or audio codes provided without
+  // a source audio file (legacy callers that omit the taskType field).
+  const isPassthru  = taskType === 'passthrough' || Boolean(params.audioCodes && !params.sourceAudioUrl);
+  // LLM (ace-qwen3) is only needed for plain text-to-music generation.
+  // Cover, repaint, and passthrough all skip it.
+  const skipLm      = isCover || isRepaint || isPassthru;
+
+  // ── Debug: log what the UI/API client requested ──────────────────────────
+  console.log(
+    `[Job ${jobId}] Request received:` +
+    `\n  mode          = ${taskType}` +
+    `\n  customMode    = ${params.customMode}` +
+    `\n  ditModel      = ${params.ditModel || '(default)'}` +
+    `\n  sourceAudio   = ${params.sourceAudioUrl || 'none'}` +
+    `\n  repaintRegion = [${params.repaintingStart ?? 'start'}, ${params.repaintingEnd ?? 'end'}]` +
+    `\n  coverStrength = ${params.audioCoverStrength ?? 'n/a'}` +
+    `\n  steps         = ${params.inferenceSteps ?? 8}` +
+    `\n  guidance      = ${params.guidanceScale ?? 0.0}` +
+    `\n  shift         = ${params.shift ?? 3.0}` +
+    `\n  skipLm        = ${skipLm}`
+  );
+
   try {
     // ── Build request.json ─────────────────────────────────────────────────
-    // ace-qwen3 reads generation parameters from a JSON file. Only `caption`
-    // is strictly required; all other fields default to sensible values.
+    // The JSON file is read by ace-qwen3 (text2music) or dit-vae directly
+    // (cover / repaint / passthrough).  Only include the fields each binary
+    // actually understands so the format stays clean and predictable.
     const caption = params.style || 'pop music';
     const prompt  = params.customMode ? caption : (params.songDescription || caption);
-    // Instrumental: pass the special "[Instrumental]" lyrics string so the LLM
+    // Instrumental: pass the special "[Instrumental]" lyrics marker so the LLM
     // skips lyrics generation (as documented in the acestep.cpp README).
     const lyrics  = params.instrumental ? '[Instrumental]' : (params.lyrics || '');
 
+    // Fields common to all modes (understood by both ace-qwen3 and dit-vae)
     const requestJson: Record<string, unknown> = {
-      caption: prompt,
+      caption:         prompt,
       lyrics,
-      vocal_language:    params.vocalLanguage    || 'unknown',
-      seed:              params.randomSeed !== false ? -1 : (params.seed ?? -1),
-      lm_temperature:    params.lmTemperature    ?? 0.85,
-      lm_cfg_scale:      params.lmCfgScale       ?? 2.0,
-      lm_top_p:          params.lmTopP           ?? 0.9,
-      lm_top_k:          params.lmTopK           ?? 0,
-      lm_negative_prompt: params.lmNegativePrompt || '',
-      inference_steps:   params.inferenceSteps   ?? 8,
-      guidance_scale:    params.guidanceScale     ?? 0.0,
-      shift:             params.shift             ?? 3.0,
+      seed:            params.randomSeed !== false ? -1 : (params.seed ?? -1),
+      inference_steps: params.inferenceSteps ?? 8,
+      guidance_scale:  params.guidanceScale  ?? 0.0,
+      shift:           params.shift          ?? 3.0,
     };
-    // Optional metadata (0 / empty = let the LLM fill it)
-    if (params.bpm && params.bpm > 0)     requestJson.bpm           = params.bpm;
-    if (params.duration && params.duration > 0) requestJson.duration = params.duration;
-    if (params.keyScale)                  requestJson.keyscale      = params.keyScale;
-    if (params.timeSignature)             requestJson.timesignature = params.timeSignature;
-    // Passthrough: skip the LLM when audio codes are already provided
-    if (params.audioCodes)                requestJson.audio_codes   = params.audioCodes;
-    // Cover/audio-to-audio: strength of the source audio influence on the output
-    // (ignored in repaint mode — the mask handles everything)
-    if (params.audioCoverStrength !== undefined && params.taskType !== 'repaint') {
-      requestJson.audio_cover_strength = params.audioCoverStrength;
-    }
-    // Repaint mode: regenerate a time region while preserving the rest.
-    // Activated by setting repainting_start and/or repainting_end in the JSON.
-    // Both default to -1 (inactive): -1 on start means 0s, -1 on end means source duration.
-    if (params.taskType === 'repaint' && params.sourceAudioUrl) {
-      requestJson.repainting_start = params.repaintingStart ?? -1;
-      requestJson.repainting_end   = params.repaintingEnd   ?? -1;
+
+    // Optional music metadata (0 / empty → binary fills it in)
+    if (params.bpm && params.bpm > 0)           requestJson.bpm           = params.bpm;
+    if (params.duration && params.duration > 0) requestJson.duration      = params.duration;
+    if (params.keyScale)                        requestJson.keyscale      = params.keyScale;
+    if (params.timeSignature)                   requestJson.timesignature = params.timeSignature;
+
+    if (skipLm) {
+      // ── Cover / repaint / passthrough: ace-qwen3 is skipped ─────────────
+      // Add only the mode-specific fields that dit-vae cares about.
+      if (isPassthru) {
+        if (!params.audioCodes) {
+          // Passthrough requires pre-computed codes — fail early with a clear message
+          throw new Error("task_type='passthrough' requires pre-computed audio_codes");
+        }
+        requestJson.audio_codes = params.audioCodes;
+      } else if (isCover) {
+        // Cover / audio-to-audio: strength of the source audio influence (0–1)
+        if (params.audioCoverStrength !== undefined) {
+          requestJson.audio_cover_strength = params.audioCoverStrength;
+        }
+      } else if (isRepaint) {
+        // Repaint: regenerate only the specified time region; preserve the rest.
+        // Both default to -1: start=-1 → 0 s, end=-1 → full source duration.
+        // Note: sourceAudioUrl is guaranteed here — validated in processGeneration.
+        requestJson.repainting_start = params.repaintingStart ?? -1;
+        requestJson.repainting_end   = params.repaintingEnd   ?? -1;
+      }
+    } else {
+      // ── Text-to-music: include LM parameters for ace-qwen3 ──────────────
+      requestJson.vocal_language     = params.vocalLanguage    || 'unknown';
+      requestJson.lm_temperature     = params.lmTemperature    ?? 0.85;
+      requestJson.lm_cfg_scale       = params.lmCfgScale       ?? 2.0;
+      requestJson.lm_top_p           = params.lmTopP           ?? 0.9;
+      requestJson.lm_top_k           = params.lmTopK           ?? 0;
+      requestJson.lm_negative_prompt = params.lmNegativePrompt || '';
     }
 
     const requestPath = path.join(tmpDir, 'request.json');
     await writeFile(requestPath, JSON.stringify(requestJson, null, 2));
+    console.log(`[Job ${jobId}] Request JSON written to ${requestPath}:`);
+    console.log(JSON.stringify(requestJson, null, 2));
 
     // ── Step 1: ace-qwen3 — LLM (lyrics + audio codes) ────────────────────
     // Skipped when:
-    //   • audio_codes are provided (passthrough) — codes are already known
-    //   • sourceAudioUrl is provided (cover/audio-to-audio) — dit-vae derives
-    //     codes directly from the source audio; running ace-qwen3 is not needed
+    //   • taskType is cover / audio2audio / repaint — dit-vae derives tokens
+    //     directly from the source audio; running ace-qwen3 is not needed
+    //   • taskType is passthrough — audio codes are already provided
     let enrichedPaths: string[] = [];
 
-    if (!params.audioCodes && !params.sourceAudioUrl) {
+    if (!skipLm) {
       job.stage = 'LLM: generating lyrics and audio codes…';
 
       const lmBin   = config.acestep.lmBin!;
@@ -513,7 +576,7 @@ async function runViaSpawn(
       if (batchSize > 1) lmArgs.push('--batch', String(batchSize));
       lmArgs.push(...parseExtraArgs(process.env.ACE_QWEN3_EXTRA_ARGS));
 
-      console.log(`[Spawn] Job ${jobId}: ace-qwen3 ${lmArgs.slice(0, 6).join(' ')} …`);
+      console.log(`[Job ${jobId}] Running ace-qwen3:\n  ${lmBin} ${lmArgs.join(' ')}`);
       await runBinary(lmBin, lmArgs, 'ace-qwen3', undefined, makeLmProgressHandler(job));
 
       // Collect enriched JSON files produced by ace-qwen3:
@@ -528,23 +591,32 @@ async function runViaSpawn(
       if (enrichedPaths.length === 0) {
         throw new Error('ace-qwen3 produced no enriched request files');
       }
+      console.log(`[Job ${jobId}] ace-qwen3 produced ${enrichedPaths.length} enriched file(s): ${enrichedPaths.join(', ')}`);
     } else {
-      // Passthrough: use the original request.json directly
-      // (audio codes provided, or source audio supplied for cover/audio-to-audio mode)
+      // Cover / repaint / passthrough: pass the original request.json directly
+      // to dit-vae; no LLM enrichment step needed.
       enrichedPaths = [requestPath];
+      console.log(`[Job ${jobId}] LLM step skipped (mode=${taskType}); passing request.json directly to dit-vae`);
     }
 
     // ── Step 2: dit-vae — DiT + VAE (audio synthesis) ──────────────────────
     job.stage = 'DiT+VAE: synthesising audio…';
 
-    const ditVaeBin          = config.acestep.ditVaeBin!;
-    const textEncoderModel   = config.acestep.textEncoderModel;
-    const ditModel           = resolveParamDitModel(params.ditModel);
-    const vaeModel           = config.acestep.vaeModel;
+    const ditVaeBin        = config.acestep.ditVaeBin!;
+    const textEncoderModel = config.acestep.textEncoderModel;
+    const ditModel         = resolveParamDitModel(params.ditModel);
+    const vaeModel         = config.acestep.vaeModel;
 
     if (!textEncoderModel) throw new Error('Text-encoder model not found — run models.sh first');
     if (!ditModel)         throw new Error('DiT model not found — run models.sh first');
     if (!vaeModel)         throw new Error('VAE model not found — run models.sh first');
+
+    console.log(
+      `[Job ${jobId}] Resolved model paths:` +
+      `\n  text-encoder = ${textEncoderModel}` +
+      `\n  dit          = ${ditModel}` +
+      `\n  vae          = ${vaeModel}`
+    );
 
     const ditArgs: string[] = [
       '--request',      ...enrichedPaths,
@@ -556,10 +628,14 @@ async function runViaSpawn(
     const batchSize = Math.min(Math.max(params.batchSize ?? 1, 1), 8);
     if (batchSize > 1) ditArgs.push('--batch', String(batchSize));
 
-    if (params.sourceAudioUrl) ditArgs.push('--src-audio', resolveAudioPath(params.sourceAudioUrl));
+    // Cover and repaint modes both require a source audio file
+    if (params.sourceAudioUrl) {
+      const srcAudioPath = resolveAudioPath(params.sourceAudioUrl);
+      ditArgs.push('--src-audio', srcAudioPath);
+    }
     ditArgs.push(...parseExtraArgs(process.env.DIT_VAE_EXTRA_ARGS));
 
-    console.log(`[Spawn] Job ${jobId}: dit-vae ${ditArgs.slice(0, 6).join(' ')} …`);
+    console.log(`[Job ${jobId}] Running dit-vae:\n  ${ditVaeBin} ${ditArgs.join(' ')}`);
     await runBinary(ditVaeBin, ditArgs, 'dit-vae', undefined, makeDitVaeProgressHandler(job));
 
     // ── Collect generated WAV files ─────────────────────────────────────────
@@ -608,7 +684,7 @@ async function runViaSpawn(
       status: 'succeeded',
     };
     job.rawResponse = enrichedMeta;
-    console.log(`[Spawn] Job ${jobId}: completed with ${audioUrls.length} audio file(s)`);
+    console.log(`[Job ${jobId}] Completed successfully with ${audioUrls.length} audio file(s): ${audioUrls.join(', ')}`);
 
     // Clean up tmp directory
     await rm(tmpDir, { recursive: true, force: true }).catch(() => { /* best-effort */ });
@@ -843,16 +919,28 @@ async function processGeneration(
   job.status = 'running';
   job.stage  = 'Starting generation...';
 
+  const mode = useSpawnMode(params) ? 'spawn' : 'http';
+  console.log(
+    `[Job ${jobId}] Starting generation (${mode} mode):` +
+    `\n  taskType    = ${params.taskType || 'text2music'}` +
+    `\n  customMode  = ${params.customMode}` +
+    `\n  ditModel    = ${params.ditModel || '(default)'}` +
+    `\n  sourceAudio = ${params.sourceAudioUrl || 'none'}` +
+    `\n  audioCodes  = ${params.audioCodes ? '[provided]' : 'none'}`
+  );
+
   if ((params.taskType === 'cover' || params.taskType === 'audio2audio') &&
       !params.sourceAudioUrl && !params.audioCodes) {
     job.status = 'failed';
     job.error  = `task_type='${params.taskType}' requires a source audio or audio codes`;
+    console.error(`[Job ${jobId}] Validation failed: ${job.error}`);
     return;
   }
 
   if (params.taskType === 'repaint' && !params.sourceAudioUrl) {
     job.status = 'failed';
     job.error  = "task_type='repaint' requires a source audio (--src-audio)";
+    console.error(`[Job ${jobId}] Validation failed: ${job.error}`);
     return;
   }
 
@@ -864,9 +952,10 @@ async function processGeneration(
       await runViaHttp(jobId, params, job);
     }
   } catch (err) {
-    console.error(`Job ${jobId} failed:`, err);
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[Job ${jobId}] Generation failed: ${errMsg}`);
     job.status = 'failed';
-    job.error  = err instanceof Error ? err.message : 'Generation failed';
+    job.error  = errMsg || 'Generation failed';
   }
 }
 
