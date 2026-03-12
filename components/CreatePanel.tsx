@@ -1857,30 +1857,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                       </>
                     )}
 
-                    {/* Tracks to preserve (completeTrackClasses) */}
-                    <div className="pt-0.5">
-                      <label className="text-[10px] text-zinc-500 dark:text-zinc-400 block mb-1">{t('completeTrackClasses')}</label>
-                      <div className="flex flex-wrap gap-x-3 gap-y-1">
-                        {TRACK_NAMES.map(name => {
-                          const isChecked = completeTrackClassesParsed.includes(name);
-                          return (
-                            <label key={name} className="flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={() => {
-                                  const next = isChecked ? completeTrackClassesParsed.filter(s => s !== name) : [...completeTrackClassesParsed, name];
-                                  setCompleteTrackClasses(next.join(','));
-                                }}
-                                className="accent-amber-500"
-                              />
-                              {name}
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-
                     <p className="text-[10px] text-amber-600 dark:text-amber-400">{t('legoBaseModelRequired')}</p>
                   </div>
                 )}
