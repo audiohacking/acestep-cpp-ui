@@ -21,8 +21,16 @@ import { getStorageProvider } from '../services/storage/factory.js';
 const router = Router();
 
 // Auto-generate a song title from lyrics or style when none is provided
-function autoTitle(params: { title?: string; lyrics?: string; instrumental?: boolean; style?: string; songDescription?: string }): string {
+function autoTitle(params: { title?: string; lyrics?: string; instrumental?: boolean; style?: string; songDescription?: string; taskType?: string; trackName?: string; sourceAudioTitle?: string }): string {
   if (params.title?.trim()) return params.title.trim();
+
+  // For lego mode: combine source audio name + instrument to make a descriptive title
+  if (params.taskType === 'lego' && params.trackName) {
+    const base = params.sourceAudioTitle
+      ? params.sourceAudioTitle.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim()
+      : 'track';
+    return `${base} — ${params.trackName}`;
+  }
 
   // Try first meaningful lyric line (skip section markers like [verse], [chorus])
   if (!params.instrumental && params.lyrics) {

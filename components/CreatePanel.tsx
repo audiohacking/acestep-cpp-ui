@@ -320,7 +320,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const [showAudioModal, setShowAudioModal] = useState(false);
   const [audioModalTarget, setAudioModalTarget] = useState<'reference' | 'source'>('reference');
   const [tempAudioUrl, setTempAudioUrl] = useState('');
-  const [audioTab, setAudioTab] = useState<'reference' | 'source'>('reference');
+  const [audioTab, setAudioTab] = useState<'reference' | 'source' | 'lego'>('reference');
   const referenceAudioRef = useRef<HTMLAudioElement>(null);
   const sourceAudioRef = useRef<HTMLAudioElement>(null);
   const [referencePlaying, setReferencePlaying] = useState(false);
@@ -1087,6 +1087,8 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     setSourceTime(0);
     setSourceDuration(0);
     if (taskType === 'cover' || taskType === 'repaint' || taskType === 'lego') setTaskType('text2music');
+    // If we're on the lego tab, switch away since there's no source audio anymore
+    if (audioTab === 'lego') setAudioTab('reference');
   };
 
   /**
@@ -1144,13 +1146,24 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
 
   const handleWorkspaceDrop = (e: React.DragEvent<HTMLDivElement>) => {
     if (e.dataTransfer.files?.length || e.dataTransfer.types.includes('application/x-ace-audio')) {
-      handleDrop(e, audioTab);
+      // Lego tab uses source audio slot for the backing track
+      handleDrop(e, audioTab === 'lego' ? 'source' : audioTab);
     }
   };
 
   const handleWorkspaceDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     if (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes('application/x-ace-audio')) {
       e.preventDefault();
+    }
+  };
+
+  /** Switch the audio tab; automatically syncs the taskType when entering/leaving lego. */
+  const handleAudioTabChange = (tab: 'reference' | 'source' | 'lego') => {
+    setAudioTab(tab);
+    if (tab === 'lego') {
+      setTaskType('lego');
+    } else if (taskType === 'lego') {
+      setTaskType('text2music');
     }
   };
 
@@ -1409,7 +1422,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
 
           {/* Audio Section */}
           <div
-            onDrop={(e) => handleDrop(e, audioTab)}
+            onDrop={(e) => handleDrop(e, audioTab === 'lego' ? 'source' : audioTab)}
             onDragOver={handleDragOver}
             className="bg-white dark:bg-[#1a1a1f] rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden"
           >
@@ -1420,7 +1433,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 <div className="flex items-center gap-1 bg-zinc-200/50 dark:bg-black/30 rounded-lg p-0.5">
                   <button
                     type="button"
-                    onClick={() => setAudioTab('reference')}
+                    onClick={() => handleAudioTabChange('reference')}
                     className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
                       audioTab === 'reference'
                         ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
@@ -1431,7 +1444,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setAudioTab('source')}
+                    onClick={() => handleAudioTabChange('source')}
                     className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
                       audioTab === 'source'
                         ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
@@ -1439,6 +1452,17 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     }`}
                   >
                     {t('cover')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAudioTabChange('lego')}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                      audioTab === 'lego'
+                        ? 'bg-amber-500 text-white shadow-sm'
+                        : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                    }`}
+                  >
+                    {t('legoMode')}
                   </button>
                 </div>
               </div>
@@ -1636,16 +1660,16 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                   </>
                 )}
 
-                {/* Cover / Repaint / Lego mode toggle (shown when source audio is loaded) */}
+                {/* Cover / Repaint mode toggle (shown when source audio is loaded on the Cover tab) */}
                 {audioTab === 'source' && sourceAudioUrl && (
                   <div className="space-y-2">
-                    {/* Mode toggle: Cover vs Repaint vs Lego */}
+                    {/* Mode toggle: Cover vs Repaint */}
                     <div className="flex items-center gap-1 bg-zinc-100 dark:bg-black/20 rounded-lg p-0.5">
                       <button
                         type="button"
                         onClick={() => setTaskType('cover')}
                         className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all ${
-                          taskType !== 'repaint' && taskType !== 'lego'
+                          taskType !== 'repaint'
                             ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
                             : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
                         }`}
@@ -1663,26 +1687,15 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                       >
                         {t('repaintMode')}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setTaskType('lego')}
-                        className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all ${
-                          taskType === 'lego'
-                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
-                            : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
-                        }`}
-                      >
-                        {t('legoMode')}
-                      </button>
                     </div>
 
                     {/* Mode description */}
                     <p className="text-[10px] text-zinc-400 dark:text-zinc-500 px-0.5">
-                      {taskType === 'repaint' ? t('repaintModeDescription') : taskType === 'lego' ? t('legoModeDescription') : t('coverModeDescription')}
+                      {taskType === 'repaint' ? t('repaintModeDescription') : t('coverModeDescription')}
                     </p>
 
                     {/* Cover strength slider (only in cover mode) */}
-                    {taskType !== 'repaint' && taskType !== 'lego' && (
+                    {taskType !== 'repaint' && (
                       <div className="flex items-center gap-2">
                         <label className="text-[10px] text-zinc-500 dark:text-zinc-400 whitespace-nowrap">{t('audioCoverStrength')}</label>
                         <input
@@ -1736,47 +1749,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                       </div>
                     )}
 
-                    {/* Lego track selector (lego mode only) */}
-                    {taskType === 'lego' && (
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-zinc-500 dark:text-zinc-400">{t('legoTrackLabel')}</label>
-                        <select
-                          value={trackName}
-                          onChange={(e) => setTrackName(e.target.value)}
-                          className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-amber-500 dark:focus:border-amber-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800"
-                        >
-                          <option value="">{t('legoTrackPlaceholder')}</option>
-                          {TRACK_NAMES.map(name => (
-                            <option key={name} value={name}>{name}</option>
-                          ))}
-                        </select>
-                        {/* Which existing tracks to preserve */}
-                        <div className="pt-1">
-                          <label className="text-[10px] text-zinc-500 dark:text-zinc-400 block mb-1">{t('completeTrackClasses')}</label>
-                          <div className="flex flex-wrap gap-x-3 gap-y-1">
-                            {TRACK_NAMES.map(name => {
-                              const isChecked = completeTrackClassesParsed.includes(name);
-                              return (
-                                <label key={name} className="flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={() => {
-                                      const next = isChecked ? completeTrackClassesParsed.filter(s => s !== name) : [...completeTrackClassesParsed, name];
-                                      setCompleteTrackClasses(next.join(','));
-                                    }}
-                                    className="accent-amber-500"
-                                  />
-                                  {name}
-                                </label>
-                              );
-                            })}
-                          </div>
-                        </div>
-                        <p className="text-[10px] text-amber-600 dark:text-amber-400">{t('legoBaseModelRequired')}</p>
-                      </div>
-                    )}
-
                     {/* SFT model status banner (shown when repaint mode active) */}
                     {taskType === 'repaint' && sftStatus !== 'idle' && (
                       <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-medium ${
@@ -1809,11 +1781,113 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                   </div>
                 )}
 
+                {/* ═══ LEGO TAB CONTENT ═══ */}
+                {audioTab === 'lego' && (
+                  <div className="space-y-3">
+                    {/* Instrument selector — required, shown always */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wide">{t('legoTrackLabel')}</label>
+                      <select
+                        value={trackName}
+                        onChange={(e) => setTrackName(e.target.value)}
+                        className="w-full bg-zinc-50 dark:bg-black/20 border-2 border-amber-400 dark:border-amber-500/60 rounded-lg px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-amber-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800"
+                      >
+                        <option value="">{t('legoTrackPlaceholder')}</option>
+                        {TRACK_NAMES.map(name => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-amber-600 dark:text-amber-400">{t('legoModeDescription')}</p>
+                    </div>
+
+                    {/* Existing backing track player (when loaded) */}
+                    {sourceAudioUrl && (
+                      <>
+                      <div className="flex items-center gap-3 p-2 rounded-lg bg-zinc-50 dark:bg-white/[0.03] border border-zinc-100 dark:border-white/5">
+                        <button
+                          type="button"
+                          onClick={() => toggleAudio('source')}
+                          className="relative flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-lg shadow-amber-500/20 hover:scale-105 transition-transform"
+                        >
+                          {sourcePlaying ? (
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>
+                          ) : (
+                            <svg className="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                          )}
+                          <span className="absolute -bottom-1 -right-1 text-[8px] font-bold bg-zinc-900 text-white px-1 py-0.5 rounded">
+                            {formatTime(sourceDuration)}
+                          </span>
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 truncate mb-1.5">
+                            {sourceAudioTitle || getAudioLabel(sourceAudioUrl)}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-zinc-400 tabular-nums">{formatTime(sourceTime)}</span>
+                            <div
+                              className="flex-1 h-1.5 rounded-full bg-zinc-200 dark:bg-white/10 cursor-pointer group/seek"
+                              onClick={(e) => {
+                                if (sourceAudioRef.current && sourceDuration > 0) {
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  const percent = (e.clientX - rect.left) / rect.width;
+                                  sourceAudioRef.current.currentTime = percent * sourceDuration;
+                                }
+                              }}
+                            >
+                              <div
+                                className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all relative"
+                                style={{ width: sourceDuration ? `${Math.min(100, (sourceTime / sourceDuration) * 100)}%` : '0%' }}
+                              >
+                                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-white shadow-md opacity-0 group-hover/seek:opacity-100 transition-opacity" />
+                              </div>
+                            </div>
+                            <span className="text-[10px] text-zinc-400 tabular-nums">{formatTime(sourceDuration)}</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleClearSourceAudio}
+                          className="p-1.5 rounded-full hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-400 hover:text-zinc-600 dark:hover:text-white transition-colors"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>
+                      </div>
+                      </>
+                    )}
+
+                    {/* Tracks to preserve (completeTrackClasses) */}
+                    <div className="pt-0.5">
+                      <label className="text-[10px] text-zinc-500 dark:text-zinc-400 block mb-1">{t('completeTrackClasses')}</label>
+                      <div className="flex flex-wrap gap-x-3 gap-y-1">
+                        {TRACK_NAMES.map(name => {
+                          const isChecked = completeTrackClassesParsed.includes(name);
+                          return (
+                            <label key={name} className="flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {
+                                  const next = isChecked ? completeTrackClassesParsed.filter(s => s !== name) : [...completeTrackClassesParsed, name];
+                                  setCompleteTrackClasses(next.join(','));
+                                }}
+                                className="accent-amber-500"
+                              />
+                              {name}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400">{t('legoBaseModelRequired')}</p>
+                  </div>
+                )}
+
                 {/* Action buttons */}
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => openAudioModal(audioTab, 'uploads')}
+                    onClick={() => openAudioModal(audioTab === 'lego' ? 'source' : audioTab, 'uploads')}
                     className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-700 dark:text-zinc-300 px-3 py-2 text-xs font-medium transition-colors border border-zinc-200 dark:border-white/5"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
