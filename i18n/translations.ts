@@ -8,6 +8,7 @@ export const translations = {
     search: 'Search',
     models: 'Models',
     news: 'News',
+    debug: 'Debug',
 
     // Theme
     lightMode: 'Light Mode',
@@ -566,6 +567,7 @@ export const translations = {
     search: '搜索',
     models: '模型',
     news: '新闻',
+    debug: '调试',
 
     // Theme
     lightMode: '浅色模式',
@@ -1124,6 +1126,7 @@ export const translations = {
     search: '検索',
     models: 'モデル',
     news: 'ニュース',
+    debug: 'デバッグ',
 
     // Theme
     lightMode: 'ライトモード',
@@ -1682,6 +1685,7 @@ export const translations = {
     search: '검색',
     models: '모델',
     news: '뉴스',
+    debug: '디버그',
 
     // Theme
     lightMode: '라이트 모드',

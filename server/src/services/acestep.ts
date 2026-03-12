@@ -129,6 +129,8 @@ interface ActiveJob {
   queuePosition?: number;
   progress?: number;
   stage?: string;
+  /** All raw lines emitted by ace-qwen3 / dit-vae (stdout + stderr), in order. */
+  logs: string[];
 }
 
 const activeJobs = new Map<string, ActiveJob>();
@@ -319,8 +321,20 @@ function runBinary(
     let stdout = '';
     let stderr = '';
     let lineBuf = '';
+    let stdoutLineBuf = '';
 
-    proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+    proc.stdout.on('data', (chunk: Buffer) => {
+      const text = chunk.toString();
+      stdout += text;
+      // Stream stdout lines to onLine as well so they appear in the debug log
+      stdoutLineBuf += text;
+      const lines = stdoutLineBuf.split('\n');
+      stdoutLineBuf = lines.pop() ?? '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed && onLine) onLine(`[stdout] ${trimmed}`);
+      }
+    });
     proc.stderr.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       stderr += text;
@@ -335,8 +349,10 @@ function runBinary(
 
     proc.on('close', (code) => {
       // Flush any partial last line that didn't end with a newline
+      if (stdoutLineBuf.trim() && onLine) onLine(`[stdout] ${stdoutLineBuf.trim()}`);
       if (lineBuf.trim() && onLine) onLine(lineBuf.trim());
       lineBuf = '';
+      stdoutLineBuf = '';
 
       if (code === 0) {
         resolve({ stdout, stderr });
@@ -393,6 +409,9 @@ function makeLmProgressHandler(job: ActiveJob): (line: string) => void {
   const PHASE1_STEP_CEIL = 400;
 
   return (line: string) => {
+    // Always capture the raw line for the debug log
+    job.logs.push(line);
+
     // Phase1 LM decode: "[Phase1] step 100, 1 active, 19.0 tok/s"
     const p1 = line.match(/^\[Phase1\] step (\d+),.*?([\d.]+) tok\/s/);
     if (p1) {
@@ -437,6 +456,9 @@ function makeDitVaeProgressHandler(job: ActiveJob): (line: string) => void {
   let ditTotalSteps = 8;
 
   return (line: string) => {
+    // Always capture the raw line for the debug log
+    job.logs.push(line);
+
     // DiT starting — capture step count: "[DiT] Starting: T=3470, S=1735, …, steps=8, …"
     const ditStart = line.match(/^\[DiT\] Starting:.*?steps=(\d+)/);
     if (ditStart) {
@@ -603,6 +625,8 @@ async function runViaSpawn(
     await writeFile(requestPath, JSON.stringify(requestJson, null, 2));
     console.log(`[Job ${jobId}] Request JSON written to ${requestPath}:`);
     console.log(JSON.stringify(requestJson, null, 2));
+    job.logs.push(`=== Job ${jobId} started — mode: ${taskType} ===`);
+    job.logs.push(`Request JSON: ${JSON.stringify(requestJson, null, 2)}`);
 
     // ── Step 1: ace-qwen3 — LLM (lyrics + audio codes) ────────────────────
     // Skipped when:
@@ -624,7 +648,9 @@ async function runViaSpawn(
       if (batchSize > 1) lmArgs.push('--batch', String(batchSize));
       lmArgs.push(...parseExtraArgs(process.env.ACE_QWEN3_EXTRA_ARGS));
 
-      console.log(`[Job ${jobId}] Running ace-qwen3:\n  ${lmBin} ${lmArgs.join(' ')}`);
+      const lmCmd = `${lmBin} ${lmArgs.join(' ')}`;
+      console.log(`[Job ${jobId}] Running ace-qwen3:\n  ${lmCmd}`);
+      job.logs.push(`\n--- Running ace-qwen3 ---\n$ ${lmCmd}`);
       await runBinary(lmBin, lmArgs, 'ace-qwen3', undefined, makeLmProgressHandler(job));
 
       // Collect enriched JSON files produced by ace-qwen3:
@@ -695,7 +721,9 @@ async function runViaSpawn(
 
     ditArgs.push(...parseExtraArgs(process.env.DIT_VAE_EXTRA_ARGS));
 
-    console.log(`[Job ${jobId}] Running dit-vae:\n  ${ditVaeBin} ${ditArgs.join(' ')}`);
+    const ditCmd = `${ditVaeBin} ${ditArgs.join(' ')}`;
+    console.log(`[Job ${jobId}] Running dit-vae:\n  ${ditCmd}`);
+    job.logs.push(`\n--- Running dit-vae ---\n$ ${ditCmd}`);
     await runBinary(ditVaeBin, ditArgs, 'dit-vae', undefined, makeDitVaeProgressHandler(job));
 
     // ── Collect generated WAV files ─────────────────────────────────────────
@@ -744,12 +772,18 @@ async function runViaSpawn(
       status: 'succeeded',
     };
     job.rawResponse = enrichedMeta;
+    job.logs.push(`\n=== Job ${jobId} completed successfully — ${audioUrls.length} file(s): ${audioUrls.join(', ')} ===`);
     console.log(`[Job ${jobId}] Completed successfully with ${audioUrls.length} audio file(s): ${audioUrls.join(', ')}`);
 
     // Clean up tmp directory
     await rm(tmpDir, { recursive: true, force: true }).catch(() => { /* best-effort */ });
 
   } catch (err) {
+    // Append error to the debug log before re-throwing
+    if (activeJobs.has(jobId)) {
+      const j = activeJobs.get(jobId)!;
+      j.logs.push(`\n=== Job ${jobId} FAILED: ${(err as Error).message} ===`);
+    }
     // Best-effort cleanup on failure
     try {
       const { rm } = await import('fs/promises');
@@ -956,6 +990,7 @@ export async function generateMusicViaAPI(params: GenerationParams): Promise<{ j
     startTime: Date.now(),
     status: 'queued',
     queuePosition: jobQueue.length + 1,
+    logs: [],
   };
 
   activeJobs.set(jobId, job);
@@ -1056,6 +1091,31 @@ export async function getJobStatus(jobId: string): Promise<JobStatus> {
 
 export function getJobRawResponse(jobId: string): unknown | null {
   return activeJobs.get(jobId)?.rawResponse ?? null;
+}
+
+/**
+ * Returns the captured log lines for a job (all raw output from ace-qwen3 + dit-vae).
+ * Optionally accepts an `after` offset to return only new lines since the last poll.
+ */
+export function getJobLogs(jobId: string, after = 0): { lines: string[]; total: number; status: string } | null {
+  const job = activeJobs.get(jobId);
+  if (!job) return null;
+  return {
+    lines: job.logs.slice(after),
+    total: job.logs.length,
+    status: job.status,
+  };
+}
+
+/**
+ * Returns a summary of all in-memory jobs (most recent first), for the debug log list.
+ */
+export function listActiveJobs(): Array<{ jobId: string; status: string; startTime: number; stage?: string; logCount: number }> {
+  const result: Array<{ jobId: string; status: string; startTime: number; stage?: string; logCount: number }> = [];
+  for (const [jobId, job] of activeJobs) {
+    result.push({ jobId, status: job.status, startTime: job.startTime, stage: job.stage, logCount: job.logs.length });
+  }
+  return result.sort((a, b) => b.startTime - a.startTime);
 }
 
 // ---------------------------------------------------------------------------

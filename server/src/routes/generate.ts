@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import { spawn } from 'child_process';
+import rateLimit from 'express-rate-limit';
 import { pool } from '../db/pool.js';
 import { generateUUID } from '../db/sqlite.js';
 import { config } from '../config/index.js';
@@ -15,8 +16,19 @@ import {
   cleanupJob,
   getJobRawResponse,
   downloadAudioToBuffer,
+  getJobLogs,
+  listActiveJobs,
 } from '../services/acestep.js';
 import { getStorageProvider } from '../services/storage/factory.js';
+
+// Rate limiter for the debug log polling endpoints (read-only, lightweight)
+const logRateLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 120, // 2 req/s sustained — enough for 1.5s poll intervals
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many log requests — please slow down polling' },
+});
 
 const router = Router();
 
@@ -706,6 +718,35 @@ router.get('/debug/:taskId', authMiddleware, async (req: AuthenticatedRequest, r
       return;
     }
     res.json({ rawResponse });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// ── Debug log endpoints ───────────────────────────────────────────────────────
+
+/** List all in-memory jobs (for the debug panel job selector). */
+router.get('/logs', logRateLimiter, authMiddleware, async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    res.json({ jobs: listActiveJobs() });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * Stream log lines for a specific job.
+ * Query param `after` (integer) returns only lines after that index for efficient polling.
+ */
+router.get('/logs/:jobId', logRateLimiter, authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const after = parseInt(req.query.after as string || '0', 10);
+    const result = getJobLogs(req.params.jobId, isNaN(after) ? 0 : after);
+    if (!result) {
+      res.status(404).json({ error: 'Job not found' });
+      return;
+    }
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

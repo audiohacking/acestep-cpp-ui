@@ -23,6 +23,7 @@ import { SearchPage } from './components/SearchPage';
 import { NewsPage } from './components/NewsPage';
 import { ModelManager } from './components/ModelManager';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { DebugPanel } from './components/DebugPanel';
 
 
 function AppContent() {
@@ -290,6 +291,8 @@ function AppContent() {
         setCurrentView('news');
       } else if (path === '/models') {
         setCurrentView('models');
+      } else if (path === '/debug') {
+        setCurrentView('debug');
       }
     };
 
@@ -1305,6 +1308,13 @@ function AppContent() {
       case 'news':
         return <NewsPage />;
 
+      case 'debug':
+        return (
+          <div className="flex-1 relative overflow-hidden">
+            <DebugPanel />
+          </div>
+        );
+
       case 'create':
       default:
         return (
@@ -1411,6 +1421,8 @@ function AppContent() {
               window.history.pushState({}, '', '/search');
             } else if (v === 'news') {
               window.history.pushState({}, '', '/news');
+            } else if (v === 'debug') {
+              window.history.pushState({}, '', '/debug');
             }
             if (isMobile) setShowLeftSidebar(false);
           }}
