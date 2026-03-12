@@ -600,16 +600,13 @@ async function runViaSpawn(
         if (params.completeTrackClasses && params.completeTrackClasses.length > 0) {
           requestJson.complete_track_classes = params.completeTrackClasses;
         }
-        // Use recommended base-model settings if the caller hasn't specified them.
-        if (params.inferenceSteps === undefined || params.inferenceSteps === null) {
-          requestJson.inference_steps = 50;
-        }
-        if (params.guidanceScale === undefined || params.guidanceScale === null) {
-          requestJson.guidance_scale = 7.0;
-        }
-        if (params.shift === undefined || params.shift === null) {
-          requestJson.shift = 1.0;
-        }
+        // Lego has strict parameter requirements per the spec — always enforce them
+        // regardless of what the frontend sent, so the binary never rejects the request.
+        requestJson.inference_steps = 50;
+        requestJson.guidance_scale  = 7.0;
+        // shift=1.0 is a hard requirement for lego (the spec example always uses 1.0;
+        // using the normal default of 3.0 causes dit-vae to reject the request).
+        requestJson.shift = 1.0;
       }
     } else {
       // ── Text-to-music: include LM parameters for ace-qwen3 ──────────────
@@ -678,8 +675,24 @@ async function runViaSpawn(
 
     const ditVaeBin        = config.acestep.ditVaeBin!;
     const textEncoderModel = config.acestep.textEncoderModel;
-    const ditModel         = resolveParamDitModel(params.ditModel);
     const vaeModel         = config.acestep.vaeModel;
+
+    // Lego mode mandates the base DiT model — no other variant will work.
+    // Override whatever the frontend sent and fail early with a clear message
+    // if the base model has not been downloaded yet.
+    let ditModel: string;
+    if (isLego) {
+      const baseModel = config.acestep.baseModel;
+      if (!baseModel) {
+        throw new Error(
+          'Lego mode requires the base DiT model (acestep-v15-base) ' +
+          '— download it via the Model Manager first'
+        );
+      }
+      ditModel = baseModel;
+    } else {
+      ditModel = resolveParamDitModel(params.ditModel);
+    }
 
     if (!textEncoderModel) throw new Error('Text-encoder model not found — run models.sh first');
     if (!ditModel)         throw new Error('DiT model not found — run models.sh first');
