@@ -136,27 +136,30 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   // Unified mode: always use the full-featured panel (no simple/custom split)
   const customMode = true;
 
-  // Simple Mode
-  const [songDescription, setSongDescription] = useState('');
+  // Load persisted settings once at mount (before any useState calls)
+  const savedSettings = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem('ace-settings') || '{}'); } catch { return {}; }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // empty dep array: run once on mount only
 
   // Custom Mode
-  const [lyrics, setLyrics] = useState('');
-  const [style, setStyle] = useState('');
-  const [title, setTitle] = useState('');
+  const [lyrics, setLyrics] = useState<string>(savedSettings.lyrics ?? '');
+  const [style, setStyle] = useState<string>(savedSettings.style ?? '');
+  const [title, setTitle] = useState<string>(savedSettings.title ?? '');
 
   // Common
-  const [instrumental, setInstrumental] = useState(false);
-  const [vocalLanguage, setVocalLanguage] = useState('en');
-  const [vocalGender, setVocalGender] = useState<'male' | 'female' | ''>('');
+  const [instrumental, setInstrumental] = useState<boolean>(savedSettings.instrumental ?? false);
+  const [vocalLanguage, setVocalLanguage] = useState<string>(savedSettings.vocalLanguage ?? 'en');
+  const [vocalGender, setVocalGender] = useState<'male' | 'female' | ''>(savedSettings.vocalGender ?? '');
 
   // Music Parameters
-  const [bpm, setBpm] = useState(0);
-  const [keyScale, setKeyScale] = useState('');
-  const [timeSignature, setTimeSignature] = useState('');
+  const [bpm, setBpm] = useState<number>(savedSettings.bpm ?? 0);
+  const [keyScale, setKeyScale] = useState<string>(savedSettings.keyScale ?? '');
+  const [timeSignature, setTimeSignature] = useState<string>(savedSettings.timeSignature ?? '');
 
   // Advanced Settings
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [duration, setDuration] = useState(-1);
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(savedSettings.showAdvanced ?? false);
+  const [duration, setDuration] = useState<number>(savedSettings.duration ?? -1);
   const [batchSize, setBatchSize] = useState(() => {
     const stored = localStorage.getItem('ace-batchSize');
     return stored ? Number(stored) : 1;
@@ -165,29 +168,30 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     const stored = localStorage.getItem('ace-bulkCount');
     return stored ? Number(stored) : 1;
   });
-  const [guidanceScale, setGuidanceScale] = useState(9.0);
-  const [randomSeed, setRandomSeed] = useState(true);
-  const [seed, setSeed] = useState(-1);
-  const [thinking, setThinking] = useState(false); // Default false for GPU compatibility
-  const [enhance, setEnhance] = useState(false); // AI Enhance: uses LLM to enrich caption & generate metadata
-  const [audioFormat, setAudioFormat] = useState<'mp3' | 'flac'>('mp3');
-  const [inferenceSteps, setInferenceSteps] = useState(12);
-  const [inferMethod, setInferMethod] = useState<'ode' | 'sde'>('ode');
-  const [lmBackend, setLmBackend] = useState<'pt' | 'vllm'>('pt');
+  const [guidanceScale, setGuidanceScale] = useState<number>(savedSettings.guidanceScale ?? 9.0);
+  const [randomSeed, setRandomSeed] = useState<boolean>(savedSettings.randomSeed ?? true);
+  const [seed, setSeed] = useState<number>(savedSettings.seed ?? -1);
+  const [thinking, setThinking] = useState<boolean>(savedSettings.thinking ?? false); // Default false for GPU compatibility
+  const [enhance, setEnhance] = useState<boolean>(savedSettings.enhance ?? false); // AI Enhance: uses LLM to enrich caption & generate metadata
+  const [audioFormat, setAudioFormat] = useState<'mp3' | 'flac'>(savedSettings.audioFormat ?? 'mp3');
+  const [inferenceSteps, setInferenceSteps] = useState<number>(savedSettings.inferenceSteps ?? 12);
+  const [inferMethod, setInferMethod] = useState<'ode' | 'sde'>(savedSettings.inferMethod ?? 'ode');
+  const [lmBackend, setLmBackend] = useState<'pt' | 'vllm'>(savedSettings.lmBackend ?? 'pt');
   const [lmModel, setLmModel] = useState(() => {
     return localStorage.getItem('ace-lmModel') || 'acestep-5Hz-lm-0.6B';
   });
-  const [shift, setShift] = useState(3.0);
+  const [shift, setShift] = useState<number>(savedSettings.shift ?? 3.0);
 
   // LM Parameters (under Expert)
   const [showLmParams, setShowLmParams] = useState(false);
-  const [lmTemperature, setLmTemperature] = useState(0.8);
-  const [lmCfgScale, setLmCfgScale] = useState(2.2);
-  const [lmTopK, setLmTopK] = useState(0);
-  const [lmTopP, setLmTopP] = useState(0.92);
-  const [lmNegativePrompt, setLmNegativePrompt] = useState('NO USER INPUT');
+  const [lmTemperature, setLmTemperature] = useState<number>(savedSettings.lmTemperature ?? 0.8);
+  const [lmCfgScale, setLmCfgScale] = useState<number>(savedSettings.lmCfgScale ?? 2.2);
+  const [lmTopK, setLmTopK] = useState<number>(savedSettings.lmTopK ?? 0);
+  const [lmTopP, setLmTopP] = useState<number>(savedSettings.lmTopP ?? 0.92);
+  const [lmNegativePrompt, setLmNegativePrompt] = useState<string>(savedSettings.lmNegativePrompt ?? 'NO USER INPUT');
 
   // Expert Parameters (now in Advanced section)
+  // Note: audio URLs are NOT persisted — they may point to deleted/temporary files
   const [referenceAudioUrl, setReferenceAudioUrl] = useState('');
   const [sourceAudioUrl, setSourceAudioUrl] = useState('');
   const [referenceAudioTitle, setReferenceAudioTitle] = useState('');
@@ -196,8 +200,8 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const [repaintingStart, setRepaintingStart] = useState(0);
   const [repaintingEnd, setRepaintingEnd] = useState(-1);
   const [instruction, setInstruction] = useState('Fill the audio semantic mask based on the given conditions:');
-  const [audioCoverStrength, setAudioCoverStrength] = useState(1.0);
-  const [taskType, setTaskType] = useState('text2music');
+  const [audioCoverStrength, setAudioCoverStrength] = useState<number>(savedSettings.audioCoverStrength ?? 1.0);
+  const [taskType, setTaskType] = useState<string>(savedSettings.taskType ?? 'text2music');
   const [useAdg, setUseAdg] = useState(false);
   const [cfgIntervalStart, setCfgIntervalStart] = useState(0.0);
   const [cfgIntervalEnd, setCfgIntervalEnd] = useState(1.0);
@@ -212,8 +216,8 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const [getLrc, setGetLrc] = useState(false);
   const [scoreScale, setScoreScale] = useState(0.5);
   const [lmBatchChunkSize, setLmBatchChunkSize] = useState(8);
-  const [trackName, setTrackName] = useState('');
-  const [completeTrackClasses, setCompleteTrackClasses] = useState('');
+  const [trackName, setTrackName] = useState<string>(savedSettings.trackName ?? '');
+  const [completeTrackClasses, setCompleteTrackClasses] = useState<string>(savedSettings.completeTrackClasses ?? '');
   const [isFormatCaption, setIsFormatCaption] = useState(false);
   // Parsed array — memoised so the split doesn't run on every render
   const completeTrackClassesParsed = useMemo(
@@ -739,6 +743,38 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     prevIsGeneratingRef.current = isGenerating;
   }, [isGenerating, refreshModels]);
 
+  // Persist all main settings to localStorage (debounced 500ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem('ace-settings', JSON.stringify({
+          lyrics, style, title,
+          instrumental, vocalLanguage, vocalGender,
+          bpm, keyScale, timeSignature,
+          showAdvanced, duration,
+          guidanceScale, randomSeed, seed,
+          thinking, enhance, audioFormat,
+          inferenceSteps, inferMethod, lmBackend, shift,
+          lmTemperature, lmCfgScale, lmTopK, lmTopP, lmNegativePrompt,
+          audioCoverStrength, taskType,
+          trackName, completeTrackClasses,
+        }));
+      } catch { /* ignore quota errors */ }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [
+    lyrics, style, title,
+    instrumental, vocalLanguage, vocalGender,
+    bpm, keyScale, timeSignature,
+    showAdvanced, duration,
+    guidanceScale, randomSeed, seed,
+    thinking, enhance, audioFormat,
+    inferenceSteps, inferMethod, lmBackend, shift,
+    lmTemperature, lmCfgScale, lmTopK, lmTopP, lmNegativePrompt,
+    audioCoverStrength, taskType,
+    trackName, completeTrackClasses,
+  ]);
+
   const activeMaxDuration = thinking ? maxDurationWithLm : maxDurationWithoutLm;
 
   useEffect(() => {
@@ -1187,7 +1223,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       }
 
       onGenerate({
-        songDescription: songDescription || undefined,
         prompt: lyrics,
         lyrics,
         style: styleWithGender,
@@ -1387,39 +1422,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
 
         {/* UNIFIED PANEL */}
         <div className="space-y-5">
-          {/* Song Description */}
-          <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden">
-            <div className="px-3 py-2.5 flex items-center justify-between border-b border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-white/5">
-              <span className="text-xs font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                {t('describeYourSong')}
-              </span>
-              <button
-                type="button"
-                onClick={async () => {
-                  if (!token) return;
-                  try {
-                    const result = await generateApi.getRandomDescription(token);
-                    setSongDescription(result.description);
-                    setInstrumental(result.instrumental);
-                    setVocalLanguage(result.vocalLanguage || 'unknown');
-                  } catch (err) {
-                    console.error('Failed to load random description:', err);
-                  }
-                }}
-                title="Load random description"
-                className="p-1 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors"
-              >
-                <Dices size={14} />
-              </button>
-            </div>
-            <textarea
-              value={songDescription}
-              onChange={(e) => setSongDescription(e.target.value)}
-              placeholder={t('songDescriptionPlaceholder')}
-              className="w-full h-24 bg-transparent p-3 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none resize-none"
-            />
-          </div>
-
           {/* Audio Section */}
           <div
             onDrop={(e) => handleDrop(e, audioTab === 'lego' ? 'source' : audioTab)}
