@@ -15,7 +15,6 @@ import {
   checkSpaceHealth,
   cleanupJob,
   getJobRawResponse,
-  downloadAudioToBuffer,
   getJobLogs,
   listActiveJobs,
 } from '../services/acestep.js';
@@ -28,6 +27,15 @@ const logRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many log requests — please slow down polling' },
+});
+
+// Rate limiter for the job status polling endpoint (performs FS operations on first completion)
+const statusRateLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 120, // 2 req/s sustained — enough for 2s frontend poll intervals
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many status requests — please slow down polling' },
 });
 
 const router = Router();
@@ -390,7 +398,7 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
   }
 });
 
-router.get('/status/:jobId', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/status/:jobId', statusRateLimiter, authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const jobResult = await pool.query(
       `SELECT id, user_id, acestep_task_id, status, params, result, error, created_at
@@ -453,11 +461,18 @@ router.get('/status/:jobId', authMiddleware, async (req: AuthenticatedRequest, r
               const songId = generateUUID();
 
               try {
-                const { buffer } = await downloadAudioToBuffer(audioUrl);
-                const ext = audioUrl.endsWith('.flac') ? '.flac' : audioUrl.endsWith('.wav') ? '.wav' : '.mp3';
-                const mimeType = ext === '.wav' ? 'audio/wav' : ext === '.flac' ? 'audio/flac' : 'audio/mpeg';
+                let ext = '.mp3';
+                if (audioUrl.endsWith('.flac')) ext = '.flac';
+                else if (audioUrl.endsWith('.wav')) ext = '.wav';
                 const storageKey = `${req.user!.id}/${songId}${ext}`;
-                await storage.upload(storageKey, buffer, mimeType);
+                // Move the intermediate job file directly to its library location to avoid storing
+                // a duplicate copy of the (potentially large) audio file on disk.
+                const { rename, mkdir } = await import('fs/promises');
+                const srcPath = path.join(config.storage.audioDir, audioUrl.slice('/audio/'.length));
+                const dstDir  = path.join(config.storage.audioDir, req.user!.id);
+                const dstPath = path.join(dstDir, `${songId}${ext}`);
+                await mkdir(dstDir, { recursive: true });
+                await rename(srcPath, dstPath);
                 const storedPath = storage.getPublicUrl(storageKey);
 
                 await pool.query(
