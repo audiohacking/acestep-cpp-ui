@@ -400,6 +400,25 @@ export const translations = {
     sftModelNotFound: 'SFT model not found — go to Models to download it',
     sftModelSwitched: 'Switched to SFT model for repaint',
     autoSwitchedToSft: 'Auto-switched to SFT model (required for repaint)',
+
+    // Lego mode
+    legoMode: 'Lego',
+    legoModeDescription: 'Generate a new instrument track layered over the backing track',
+    legoTrackLabel: 'Instrument Track',
+    legoTrackPlaceholder: 'Select instrument…',
+    legoBaseModelRequired: 'Lego mode requires the base model (acestep-v15-base)',
+    autoSwitchedToBase: 'Auto-switched to base model (required for lego)',
+
+    // Understand
+    understand: 'Understand',
+    understandTooltip: 'Analyse this audio with AI to extract caption, lyrics, BPM and more',
+    understandApply: 'Apply to form',
+    understandApplyCaption: 'Apply caption',
+    understandApplyLyrics: 'Apply lyrics',
+    understandResult: 'Understand Result',
+    understandRunning: 'Analysing audio…',
+    understandError: 'Analysis failed',
+    understandNotAvailable: 'ace-understand binary not found',
     
     // Search Page
     searchSongsPlaceholder: 'Search for songs, playlists, creators, or genres',
@@ -939,6 +958,25 @@ export const translations = {
     sftModelNotFound: '未找到 SFT 模型 — 前往模型页面下载',
     sftModelSwitched: '已切换到 SFT 模型用于重绘',
     autoSwitchedToSft: '已自动切换到 SFT 模型（重绘所需）',
+
+    // Lego mode
+    legoMode: 'Lego',
+    legoModeDescription: '在伴奏音轨上生成新的乐器轨道',
+    legoTrackLabel: '乐器轨道',
+    legoTrackPlaceholder: '选择乐器…',
+    legoBaseModelRequired: 'Lego 模式需要基础模型（acestep-v15-base）',
+    autoSwitchedToBase: '已自动切换到基础模型（Lego 模式所需）',
+
+    // Understand
+    understand: '分析',
+    understandTooltip: '用 AI 分析此音频，提取标题、歌词、BPM 等信息',
+    understandApply: '应用到表单',
+    understandApplyCaption: '应用标题',
+    understandApplyLyrics: '应用歌词',
+    understandResult: '分析结果',
+    understandRunning: '正在分析音频…',
+    understandError: '分析失败',
+    understandNotAvailable: '未找到 ace-understand 程序',
     
     // Search Page
     searchSongsPlaceholder: '搜索歌曲、播放列表、创作者或风格',
@@ -1478,6 +1516,25 @@ export const translations = {
     sftModelNotFound: 'SFT モデルが見つかりません — モデルページでダウンロード',
     sftModelSwitched: 'リペイント用に SFT モデルに切り替えました',
     autoSwitchedToSft: 'SFT モデルに自動切り替え（リペイントに必要）',
+
+    // Lego mode
+    legoMode: 'Lego',
+    legoModeDescription: 'バッキングトラックに新しい楽器トラックを重ねて生成',
+    legoTrackLabel: '楽器トラック',
+    legoTrackPlaceholder: '楽器を選択…',
+    legoBaseModelRequired: 'Lego モードにはベースモデル（acestep-v15-base）が必要',
+    autoSwitchedToBase: 'ベースモデルに自動切り替え（Lego に必要）',
+
+    // Understand
+    understand: '解析',
+    understandTooltip: 'AI でこの音声を解析し、キャプション、歌詞、BPM などを抽出',
+    understandApply: 'フォームに適用',
+    understandApplyCaption: 'キャプションを適用',
+    understandApplyLyrics: '歌詞を適用',
+    understandResult: '解析結果',
+    understandRunning: '音声を解析中…',
+    understandError: '解析に失敗しました',
+    understandNotAvailable: 'ace-understand バイナリが見つかりません',
     
     // Search Page
     searchSongsPlaceholder: '曲、プレイリスト、クリエイター、スタイルを検索',
@@ -2017,6 +2074,25 @@ export const translations = {
     sftModelNotFound: 'SFT 모델을 찾을 수 없습니다 — 모델 페이지에서 다운로드하세요',
     sftModelSwitched: '리페인트를 위해 SFT 모델로 전환했습니다',
     autoSwitchedToSft: 'SFT 모델로 자동 전환됨 (리페인트에 필요)',
+
+    // Lego mode
+    legoMode: 'Lego',
+    legoModeDescription: '기존 반주 트랙 위에 새로운 악기 트랙 생성',
+    legoTrackLabel: '악기 트랙',
+    legoTrackPlaceholder: '악기 선택…',
+    legoBaseModelRequired: 'Lego 모드에는 기본 모델(acestep-v15-base)이 필요합니다',
+    autoSwitchedToBase: '기본 모델로 자동 전환됨 (Lego에 필요)',
+
+    // Understand
+    understand: '분석',
+    understandTooltip: 'AI로 이 오디오를 분석하여 캡션, 가사, BPM 등을 추출',
+    understandApply: '양식에 적용',
+    understandApplyCaption: '캡션 적용',
+    understandApplyLyrics: '가사 적용',
+    understandResult: '분석 결과',
+    understandRunning: '오디오 분석 중…',
+    understandError: '분석 실패',
+    understandNotAvailable: 'ace-understand 바이너리를 찾을 수 없습니다',
     
     // Search Page
     searchSongsPlaceholder: '곡, 재생목록, 제작자 또는 스타일 검색',

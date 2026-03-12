@@ -483,12 +483,13 @@ async function runViaSpawn(
   const taskType    = params.taskType || 'text2music';
   const isCover     = taskType === 'cover' || taskType === 'audio2audio';
   const isRepaint   = taskType === 'repaint';
+  const isLego      = taskType === 'lego';
   // Passthrough: taskType explicitly set, or audio codes provided without
   // a source audio file (legacy callers that omit the taskType field).
   const isPassthru  = taskType === 'passthrough' || Boolean(params.audioCodes && !params.sourceAudioUrl);
   // LLM (ace-qwen3) is only needed for plain text-to-music generation.
-  // Cover, repaint, and passthrough all skip it.
-  const skipLm      = isCover || isRepaint || isPassthru;
+  // Cover, repaint, lego, and passthrough all skip it.
+  const skipLm      = isCover || isRepaint || isLego || isPassthru;
 
   // ── Debug: log what the UI/API client requested ──────────────────────────
   console.log(
@@ -535,7 +536,7 @@ async function runViaSpawn(
     if (params.timeSignature)                   requestJson.timesignature = params.timeSignature;
 
     if (skipLm) {
-      // ── Cover / repaint / passthrough: ace-qwen3 is skipped ─────────────
+      // ── Cover / repaint / lego / passthrough: ace-qwen3 is skipped ──────
       // Add only the mode-specific fields that dit-vae cares about.
       if (isPassthru) {
         if (!params.audioCodes) {
@@ -554,6 +555,26 @@ async function runViaSpawn(
         // Note: sourceAudioUrl is guaranteed here — validated in processGeneration.
         requestJson.repainting_start = params.repaintingStart ?? -1;
         requestJson.repainting_end   = params.repaintingEnd   ?? -1;
+      } else if (isLego) {
+        // Lego: generate a new instrument track layered over an existing backing track.
+        // Requires the base model (acestep-v15-base) and --src-audio.
+        // The "lego" field holds the track name (e.g. "guitar", "drums").
+        if (!params.trackName) {
+          throw new Error("task_type='lego' requires a track name (e.g. 'guitar')");
+        }
+        requestJson.lego = params.trackName;
+        // Lego forces all DiT steps to use source context (audio_cover_strength=1.0
+        // per the README — dit-vae applies this internally when lego is set).
+        // Use recommended base-model settings if the caller hasn't specified them.
+        if (!params.inferenceSteps || params.inferenceSteps <= 8) {
+          requestJson.inference_steps = 50;
+        }
+        if (!params.guidanceScale || params.guidanceScale <= 0) {
+          requestJson.guidance_scale = 7.0;
+        }
+        if (!params.shift || params.shift >= 3.0) {
+          requestJson.shift = 1.0;
+        }
       }
     } else {
       // ── Text-to-music: include LM parameters for ace-qwen3 ──────────────
@@ -966,6 +987,13 @@ async function processGeneration(
     return;
   }
 
+  if (params.taskType === 'lego' && !params.sourceAudioUrl) {
+    job.status = 'failed';
+    job.error  = "task_type='lego' requires a source audio (--src-audio)";
+    console.error(`[Job ${jobId}] Validation failed: ${job.error}`);
+    return;
+  }
+
   try {
     job.stage = 'Generating music...';
     if (useSpawnMode(params)) {
@@ -1012,6 +1040,90 @@ export async function getJobStatus(jobId: string): Promise<JobStatus> {
 
 export function getJobRawResponse(jobId: string): unknown | null {
   return activeJobs.get(jobId)?.rawResponse ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Ace Understand — reverse pipeline: audio → metadata + lyrics
+// ---------------------------------------------------------------------------
+
+export interface UnderstandResult {
+  caption?: string;
+  lyrics?: string;
+  bpm?: number;
+  duration?: number;
+  keyscale?: string;
+  timesignature?: string;
+  vocal_language?: string;
+  seed?: number;
+  inference_steps?: number;
+  guidance_scale?: number;
+  shift?: number;
+  audio_cover_strength?: number;
+  repainting_start?: number;
+  repainting_end?: number;
+  lm_temperature?: number;
+  lm_cfg_scale?: number;
+  lm_top_p?: number;
+  lm_top_k?: number;
+  lm_negative_prompt?: string;
+  use_cot_caption?: boolean;
+  audio_codes?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Run ace-understand on a source audio file and return the parsed result JSON.
+ *
+ * The binary performs a reverse pipeline: VAE-encodes the audio, FSQ-tokenises
+ * the latent, then uses the LM to generate metadata (caption, lyrics, bpm, etc.)
+ * — the same fields that ace-qwen3 would fill for generation.
+ */
+export async function runUnderstand(audioUrl: string): Promise<UnderstandResult> {
+  const understandBin = config.acestep.understandBin;
+  if (!understandBin) {
+    throw new Error('ace-understand binary not found — rebuild acestep.cpp or set ACE_UNDERSTAND_BIN');
+  }
+
+  const lmModel         = config.acestep.lmModel;
+  const ditModel        = config.acestep.ditModel;
+  const vaeModel        = config.acestep.vaeModel;
+
+  if (!lmModel)   throw new Error('LM model not found — run models.sh first');
+  if (!ditModel)  throw new Error('DiT model not found — run models.sh first');
+  if (!vaeModel)  throw new Error('VAE model not found — run models.sh first');
+
+  const srcAudioPath = resolveAudioPath(audioUrl);
+  if (!existsSync(srcAudioPath)) {
+    throw new Error(`Audio file not found: ${srcAudioPath}`);
+  }
+
+  // Write output JSON to a temp file so we can parse it reliably.
+  const { mkdtemp, rm, readFile: fsReadFile } = await import('fs/promises');
+  const { tmpdir } = await import('os');
+  const tmpDir = await mkdtemp(path.join(tmpdir(), 'ace-understand-'));
+  const outJsonPath = path.join(tmpDir, 'understand.json');
+
+  try {
+    const args: string[] = [
+      '--src-audio', srcAudioPath,
+      '--dit',       ditModel,
+      '--vae',       vaeModel,
+      '--model',     lmModel,
+      '-o',          outJsonPath,
+    ];
+
+    console.log(`[understand] Running ace-understand:\n  ${understandBin} ${args.join(' ')}`);
+
+    await runBinary(understandBin, args, 'ace-understand');
+
+    // Read and parse the output JSON
+    const raw = await fsReadFile(outJsonPath, 'utf-8');
+    const result: UnderstandResult = JSON.parse(raw);
+    console.log('[understand] Result:', JSON.stringify(result, null, 2));
+    return result;
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => { /* best-effort */ });
+  }
 }
 
 export async function discoverEndpoints(): Promise<unknown> {

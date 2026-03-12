@@ -242,6 +242,9 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   // The SFT model GGUF file to download when not present (Q8_0 is the default quality tier)
   const SFT_MODEL_FILE = 'acestep-v15-sft-Q8_0.gguf';
 
+  // The base DiT model name — required for lego mode
+  const BASE_MODEL_NAME = 'acestep-v15-base';
+
   // Fallback model list when backend is unavailable
   const availableModels = useMemo(() => {
     if (fetchedModels.length > 0) {
@@ -280,10 +283,21 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     return modelId.includes('sft');
   };
 
+  // Check if model is the base variant (required for lego)
+  const isBaseModel = (modelId: string): boolean => {
+    return modelId === BASE_MODEL_NAME || modelId.startsWith('acestep-v15-base');
+  };
+
   // SFT model download/availability state for repaint mode
   type SftStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'unavailable';
   const [sftStatus, setSftStatus] = useState<SftStatus>('idle');
   const sftSseRef = useRef<EventSource | null>(null);
+
+  // Understand state — per audio target
+  type UnderstandStatus = 'idle' | 'running' | 'done' | 'error';
+  const [understandStatus, setUnderstandStatus] = useState<Record<'reference' | 'source', UnderstandStatus>>({ reference: 'idle', source: 'idle' });
+  const [understandResult, setUnderstandResult] = useState<Record<'reference' | 'source', Record<string, unknown> | null>>({ reference: null, source: null });
+  const [understandError, setUnderstandError] = useState<Record<'reference' | 'source', string | null>>({ reference: null, source: null });
 
   const [isUploadingReference, setIsUploadingReference] = useState(false);
   const [isUploadingSource, setIsUploadingSource] = useState(false);
@@ -668,6 +682,20 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
         localStorage.setItem('ace-model', prevModelBeforeRepaintRef.current);
         prevModelBeforeRepaintRef.current = null;
       }
+    } else if (taskType === 'lego') {
+      // Entering lego mode: switch to base model if not already on one
+      if (!isBaseModel(selectedModel)) {
+        prevModelBeforeRepaintRef.current = selectedModel;
+        setSelectedModel(BASE_MODEL_NAME);
+        localStorage.setItem('ace-model', BASE_MODEL_NAME);
+      }
+    } else if (prevTaskType === 'lego') {
+      // Leaving lego mode: restore previous model if it was switched
+      if (prevModelBeforeRepaintRef.current && isBaseModel(selectedModel)) {
+        setSelectedModel(prevModelBeforeRepaintRef.current);
+        localStorage.setItem('ace-model', prevModelBeforeRepaintRef.current);
+        prevModelBeforeRepaintRef.current = null;
+      }
     }
   }, [taskType, checkAndEnsureSftModel]);
 
@@ -940,6 +968,34 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     setIsTranscribingReference(false);
   };
 
+  /** Run ace-understand on the audio at the given URL and store the result. */
+  const handleUnderstand = async (target: 'reference' | 'source', audioUrl: string) => {
+    if (!token || !audioUrl) return;
+    setUnderstandStatus(prev => ({ ...prev, [target]: 'running' }));
+    setUnderstandResult(prev => ({ ...prev, [target]: null }));
+    setUnderstandError(prev => ({ ...prev, [target]: null }));
+    try {
+      const result = await generateApi.understandAudioUrl(audioUrl, token);
+      setUnderstandResult(prev => ({ ...prev, [target]: result }));
+      setUnderstandStatus(prev => ({ ...prev, [target]: 'done' }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Analysis failed';
+      setUnderstandError(prev => ({ ...prev, [target]: msg }));
+      setUnderstandStatus(prev => ({ ...prev, [target]: 'error' }));
+    }
+  };
+
+  /** Apply understand result fields to the generation form. */
+  const applyUnderstandResult = (result: Record<string, unknown>) => {
+    if (typeof result.caption === 'string' && result.caption) setStyle(result.caption);
+    if (typeof result.lyrics === 'string' && result.lyrics) setLyrics(result.lyrics);
+    if (typeof result.bpm === 'number' && result.bpm > 0) setBpm(result.bpm);
+    if (typeof result.duration === 'number' && result.duration > 0) setDuration(Math.round(result.duration));
+    if (typeof result.keyscale === 'string' && result.keyscale) setKeyScale(result.keyscale);
+    if (typeof result.timesignature === 'string' && result.timesignature) setTimeSignature(result.timesignature);
+    if (typeof result.vocal_language === 'string' && result.vocal_language) setVocalLanguage(result.vocal_language);
+  };
+
   const deleteReferenceTrack = async (trackId: string) => {
     if (!token) return;
     try {
@@ -1018,14 +1074,14 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     return `${minutes}:${String(seconds).padStart(2, '0')}`;
   };
 
-  /** Clear the source audio and reset task type if it was cover/repaint. */
+  /** Clear the source audio and reset task type if it was cover/repaint/lego. */
   const handleClearSourceAudio = () => {
     setSourceAudioUrl('');
     setSourceAudioTitle('');
     setSourcePlaying(false);
     setSourceTime(0);
     setSourceDuration(0);
-    if (taskType === 'cover' || taskType === 'repaint') setTaskType('text2music');
+    if (taskType === 'cover' || taskType === 'repaint' || taskType === 'lego') setTaskType('text2music');
   };
 
   /**
@@ -1413,7 +1469,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               <div className="px-3 py-2.5 border-b border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-white/[0.02]">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">
-                    {t('cover')} / {t('repaintMode')}
+                    {t('cover')} / {t('repaintMode')} / {t('legoMode')}
                   </span>
                   <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-200 dark:bg-white/10 text-zinc-500 dark:text-zinc-400 font-medium uppercase">
                     optional
@@ -1423,6 +1479,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               <div className="p-3 space-y-2">
                 {/* Source audio mini-player */}
                 {sourceAudioUrl && (
+                  <>
                   <div className="flex items-center gap-3 p-2 rounded-lg bg-zinc-50 dark:bg-white/[0.03] border border-zinc-100 dark:border-white/5">
                     <button
                       type="button"
@@ -1466,6 +1523,16 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                         <span className="text-[10px] text-zinc-400 tabular-nums">{formatTime(sourceDuration)}</span>
                       </div>
                     </div>
+                    {/* Understand button */}
+                    <button
+                      type="button"
+                      onClick={() => void handleUnderstand('source', sourceAudioUrl)}
+                      disabled={understandStatus.source === 'running'}
+                      title={t('understandTooltip')}
+                      className="p-1.5 rounded-full hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors disabled:opacity-50"
+                    >
+                      {understandStatus.source === 'running' ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                    </button>
                     <button
                       type="button"
                       onClick={handleClearSourceAudio}
@@ -1474,6 +1541,36 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                   </div>
+                  {/* Understand result panel */}
+                  {understandStatus.source !== 'idle' && (
+                    <div className={`rounded-lg px-3 py-2 text-[11px] space-y-1 ${
+                      understandStatus.source === 'error'
+                        ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                        : 'bg-violet-50 dark:bg-violet-900/20 text-violet-800 dark:text-violet-300'
+                    }`}>
+                      {understandStatus.source === 'running' && <span className="flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> {t('understandRunning')}</span>}
+                      {understandStatus.source === 'error' && <span>{t('understandError')}: {understandError.source}</span>}
+                      {understandStatus.source === 'done' && understandResult.source && (
+                        <>
+                          <div className="font-semibold">{t('understandResult')}</div>
+                          {understandResult.source.caption && <div className="truncate opacity-80">🎵 {String(understandResult.source.caption).slice(0, 80)}{String(understandResult.source.caption).length > 80 ? '…' : ''}</div>}
+                          <div className="flex flex-wrap gap-2 opacity-70">
+                            {understandResult.source.bpm && <span>BPM: {String(understandResult.source.bpm)}</span>}
+                            {understandResult.source.keyscale && <span>Key: {String(understandResult.source.keyscale)}</span>}
+                            {understandResult.source.duration && <span>Duration: {Math.round(Number(understandResult.source.duration))}s</span>}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => applyUnderstandResult(understandResult.source!)}
+                            className="mt-1 px-2 py-0.5 rounded bg-violet-600 text-white text-[10px] font-medium hover:bg-violet-700 transition-colors"
+                          >
+                            {t('understandApply')}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  </>
                 )}
 
                 {/* Cover / Repaint mode controls — shown when source audio is loaded */}
@@ -1485,7 +1582,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                         type="button"
                         onClick={() => setTaskType('cover')}
                         className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all ${
-                          taskType !== 'repaint'
+                          taskType !== 'repaint' && taskType !== 'lego'
                             ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
                             : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
                         }`}
@@ -1503,15 +1600,26 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                       >
                         {t('repaintMode')}
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setTaskType('lego')}
+                        className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                          taskType === 'lego'
+                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
+                            : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                        }`}
+                      >
+                        {t('legoMode')}
+                      </button>
                     </div>
 
                     {/* Mode description */}
                     <p className="text-[10px] text-zinc-400 dark:text-zinc-500 px-0.5">
-                      {taskType === 'repaint' ? t('repaintModeDescription') : t('coverModeDescription')}
+                      {taskType === 'repaint' ? t('repaintModeDescription') : taskType === 'lego' ? t('legoModeDescription') : t('coverModeDescription')}
                     </p>
 
                     {/* Cover strength slider (cover mode only) */}
-                    {taskType !== 'repaint' && (
+                    {taskType !== 'repaint' && taskType !== 'lego' && (
                       <div className="flex items-center gap-2">
                         <label className="text-[10px] text-zinc-500 dark:text-zinc-400 whitespace-nowrap">{t('audioCoverStrength')}</label>
                         <input
@@ -1562,6 +1670,24 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                             className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500 dark:focus:border-emerald-500 transition-colors"
                           />
                         </div>
+                      </div>
+                    )}
+
+                    {/* Lego track selector (lego mode only) */}
+                    {taskType === 'lego' && (
+                      <div className="space-y-1">
+                        <label className="text-[10px] text-zinc-500 dark:text-zinc-400">{t('legoTrackLabel')}</label>
+                        <select
+                          value={trackName}
+                          onChange={(e) => setTrackName(e.target.value)}
+                          className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-amber-500 dark:focus:border-amber-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800"
+                        >
+                          <option value="">{t('legoTrackPlaceholder')}</option>
+                          {TRACK_NAMES.map(name => (
+                            <option key={name} value={name}>{name}</option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-amber-600 dark:text-amber-400">{t('legoBaseModelRequired')}</p>
                       </div>
                     )}
 
@@ -1754,6 +1880,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               <div className="p-3 space-y-2">
                 {/* Reference Audio Player */}
                 {audioTab === 'reference' && referenceAudioUrl && (
+                  <>
                   <div className="flex items-center gap-3 p-2 rounded-lg bg-zinc-50 dark:bg-white/[0.03] border border-zinc-100 dark:border-white/5">
                     <button
                       type="button"
@@ -1795,6 +1922,16 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                         <span className="text-[10px] text-zinc-400 tabular-nums">{formatTime(referenceDuration)}</span>
                       </div>
                     </div>
+                    {/* Understand button */}
+                    <button
+                      type="button"
+                      onClick={() => void handleUnderstand('reference', referenceAudioUrl)}
+                      disabled={understandStatus.reference === 'running'}
+                      title={t('understandTooltip')}
+                      className="p-1.5 rounded-full hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors disabled:opacity-50"
+                    >
+                      {understandStatus.reference === 'running' ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                    </button>
                     <button
                       type="button"
                       onClick={() => { setReferenceAudioUrl(''); setReferenceAudioTitle(''); setReferencePlaying(false); setReferenceTime(0); setReferenceDuration(0); }}
@@ -1803,10 +1940,41 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                   </div>
+                  {/* Understand result panel (reference) */}
+                  {understandStatus.reference !== 'idle' && (
+                    <div className={`rounded-lg px-3 py-2 text-[11px] space-y-1 ${
+                      understandStatus.reference === 'error'
+                        ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                        : 'bg-violet-50 dark:bg-violet-900/20 text-violet-800 dark:text-violet-300'
+                    }`}>
+                      {understandStatus.reference === 'running' && <span className="flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> {t('understandRunning')}</span>}
+                      {understandStatus.reference === 'error' && <span>{t('understandError')}: {understandError.reference}</span>}
+                      {understandStatus.reference === 'done' && understandResult.reference && (
+                        <>
+                          <div className="font-semibold">{t('understandResult')}</div>
+                          {understandResult.reference.caption && <div className="truncate opacity-80">🎵 {String(understandResult.reference.caption).slice(0, 80)}{String(understandResult.reference.caption).length > 80 ? '…' : ''}</div>}
+                          <div className="flex flex-wrap gap-2 opacity-70">
+                            {understandResult.reference.bpm && <span>BPM: {String(understandResult.reference.bpm)}</span>}
+                            {understandResult.reference.keyscale && <span>Key: {String(understandResult.reference.keyscale)}</span>}
+                            {understandResult.reference.duration && <span>Duration: {Math.round(Number(understandResult.reference.duration))}s</span>}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => applyUnderstandResult(understandResult.reference!)}
+                            className="mt-1 px-2 py-0.5 rounded bg-violet-600 text-white text-[10px] font-medium hover:bg-violet-700 transition-colors"
+                          >
+                            {t('understandApply')}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  </>
                 )}
 
                 {/* Source/Cover Audio Player */}
                 {audioTab === 'source' && sourceAudioUrl && (
+                  <>
                   <div className="flex items-center gap-3 p-2 rounded-lg bg-zinc-50 dark:bg-white/[0.03] border border-zinc-100 dark:border-white/5">
                     <button
                       type="button"
@@ -1850,6 +2018,16 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                         <span className="text-[10px] text-zinc-400 tabular-nums">{formatTime(sourceDuration)}</span>
                       </div>
                     </div>
+                    {/* Understand button */}
+                    <button
+                      type="button"
+                      onClick={() => void handleUnderstand('source', sourceAudioUrl)}
+                      disabled={understandStatus.source === 'running'}
+                      title={t('understandTooltip')}
+                      className="p-1.5 rounded-full hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors disabled:opacity-50"
+                    >
+                      {understandStatus.source === 'running' ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                    </button>
                     <button
                       type="button"
                       onClick={handleClearSourceAudio}
@@ -1858,18 +2036,48 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                   </div>
+                  {/* Understand result panel (source) */}
+                  {understandStatus.source !== 'idle' && (
+                    <div className={`rounded-lg px-3 py-2 text-[11px] space-y-1 ${
+                      understandStatus.source === 'error'
+                        ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                        : 'bg-violet-50 dark:bg-violet-900/20 text-violet-800 dark:text-violet-300'
+                    }`}>
+                      {understandStatus.source === 'running' && <span className="flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> {t('understandRunning')}</span>}
+                      {understandStatus.source === 'error' && <span>{t('understandError')}: {understandError.source}</span>}
+                      {understandStatus.source === 'done' && understandResult.source && (
+                        <>
+                          <div className="font-semibold">{t('understandResult')}</div>
+                          {understandResult.source.caption && <div className="truncate opacity-80">🎵 {String(understandResult.source.caption).slice(0, 80)}{String(understandResult.source.caption).length > 80 ? '…' : ''}</div>}
+                          <div className="flex flex-wrap gap-2 opacity-70">
+                            {understandResult.source.bpm && <span>BPM: {String(understandResult.source.bpm)}</span>}
+                            {understandResult.source.keyscale && <span>Key: {String(understandResult.source.keyscale)}</span>}
+                            {understandResult.source.duration && <span>Duration: {Math.round(Number(understandResult.source.duration))}s</span>}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => applyUnderstandResult(understandResult.source!)}
+                            className="mt-1 px-2 py-0.5 rounded bg-violet-600 text-white text-[10px] font-medium hover:bg-violet-700 transition-colors"
+                          >
+                            {t('understandApply')}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  </>
                 )}
 
-                {/* Cover / Repaint mode toggle (shown when source audio is loaded) */}
+                {/* Cover / Repaint / Lego mode toggle (shown when source audio is loaded) */}
                 {audioTab === 'source' && sourceAudioUrl && (
                   <div className="space-y-2">
-                    {/* Mode toggle: Cover vs Repaint */}
+                    {/* Mode toggle: Cover vs Repaint vs Lego */}
                     <div className="flex items-center gap-1 bg-zinc-100 dark:bg-black/20 rounded-lg p-0.5">
                       <button
                         type="button"
                         onClick={() => setTaskType('cover')}
                         className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all ${
-                          taskType !== 'repaint'
+                          taskType !== 'repaint' && taskType !== 'lego'
                             ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
                             : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
                         }`}
@@ -1887,15 +2095,26 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                       >
                         {t('repaintMode')}
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setTaskType('lego')}
+                        className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                          taskType === 'lego'
+                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
+                            : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                        }`}
+                      >
+                        {t('legoMode')}
+                      </button>
                     </div>
 
                     {/* Mode description */}
                     <p className="text-[10px] text-zinc-400 dark:text-zinc-500 px-0.5">
-                      {taskType === 'repaint' ? t('repaintModeDescription') : t('coverModeDescription')}
+                      {taskType === 'repaint' ? t('repaintModeDescription') : taskType === 'lego' ? t('legoModeDescription') : t('coverModeDescription')}
                     </p>
 
                     {/* Cover strength slider (only in cover mode) */}
-                    {taskType !== 'repaint' && (
+                    {taskType !== 'repaint' && taskType !== 'lego' && (
                       <div className="flex items-center gap-2">
                         <label className="text-[10px] text-zinc-500 dark:text-zinc-400 whitespace-nowrap">{t('audioCoverStrength')}</label>
                         <input
@@ -1946,6 +2165,24 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                             className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500 dark:focus:border-emerald-500 transition-colors"
                           />
                         </div>
+                      </div>
+                    )}
+
+                    {/* Lego track selector (lego mode only) */}
+                    {taskType === 'lego' && (
+                      <div className="space-y-1">
+                        <label className="text-[10px] text-zinc-500 dark:text-zinc-400">{t('legoTrackLabel')}</label>
+                        <select
+                          value={trackName}
+                          onChange={(e) => setTrackName(e.target.value)}
+                          className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-amber-500 dark:focus:border-amber-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800"
+                        >
+                          <option value="">{t('legoTrackPlaceholder')}</option>
+                          {TRACK_NAMES.map(name => (
+                            <option key={name} value={name}>{name}</option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-amber-600 dark:text-amber-400">{t('legoBaseModelRequired')}</p>
                       </div>
                     )}
 

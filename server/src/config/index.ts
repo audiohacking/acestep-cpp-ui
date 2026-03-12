@@ -51,6 +51,16 @@ function resolveDitVaeBin(): string {
   return '';
 }
 
+/** Resolves the ace-understand binary path (reverse pipeline: audio → metadata). */
+function resolveUnderstandBin(): string {
+  if (process.env.ACE_UNDERSTAND_BIN) return resolveFromRoot(process.env.ACE_UNDERSTAND_BIN);
+  for (const name of ['ace-understand', 'ace-understand.exe']) {
+    const p = path.join(APP_ROOT, 'bin', name);
+    if (existsSync(p)) return p;
+  }
+  return '';
+}
+
 // ── Model resolution ─────────────────────────────────────────────────────────
 
 /** Resolves the models directory. */
@@ -167,6 +177,7 @@ function resolveVaeModel(modelsDir: string): string {
 const modelsDir          = resolveModelsDir();
 const resolvedLmBin      = resolveLmBin();
 const resolvedDitVaeBin  = resolveDitVaeBin();
+const resolvedUnderstandBin = resolveUnderstandBin();
 const resolvedDitModel   = resolveDitModel(modelsDir);
 const resolvedLmModel    = resolveLmModel(modelsDir);
 const resolvedTextEncoderModel = resolveTextEncoderModel(modelsDir);
@@ -177,6 +188,8 @@ if (resolvedLmBin)             console.log(`[config] ace-qwen3:      ${resolvedL
 else                           console.log('[config] ace-qwen3:      not found (set ACE_QWEN3_BIN)');
 if (resolvedDitVaeBin)         console.log(`[config] dit-vae:        ${resolvedDitVaeBin}`);
 else                           console.log('[config] dit-vae:        not found (set DIT_VAE_BIN)');
+if (resolvedUnderstandBin)     console.log(`[config] ace-understand: ${resolvedUnderstandBin}`);
+else                           console.log('[config] ace-understand: not found (set ACE_UNDERSTAND_BIN)');
 if (resolvedLmModel)           console.log(`[config] LM model:       ${resolvedLmModel}`);
 else                           console.log('[config] LM model:       none (run models.sh)');
 if (resolvedTextEncoderModel)  console.log(`[config] text encoder:   ${resolvedTextEncoderModel}`);
@@ -203,6 +216,7 @@ export const config = {
     // Two-binary spawn mode (acestep.cpp native pipeline)
     lmBin:             resolvedLmBin,
     ditVaeBin:         resolvedDitVaeBin,
+    understandBin:     resolvedUnderstandBin,
     lmModel:           resolvedLmModel,
     textEncoderModel:  resolvedTextEncoderModel,
     ditModel:          resolvedDitModel,
