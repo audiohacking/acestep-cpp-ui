@@ -1379,10 +1379,22 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                         onClick={() => {
                           setSelectedModel(model.id);
                           localStorage.setItem('ace-model', model.id);
-                          // Auto-adjust parameters for non-turbo models
-                          if (!isTurboModel(model.id)) {
-                            setInferenceSteps(20);
-                            setUseAdg(true);
+                          // Apply acestep-cpp model presets automatically
+                          if (isTurboModel(model.id)) {
+                            // Turbo: 8 steps, shift=3.0, guidance_scale=0.0 (auto → 1.0)
+                            setInferenceSteps(8);
+                            setShift(3.0);
+                            setGuidanceScale(0.0);
+                          } else if (isSftModel(model.id)) {
+                            // SFT: 50 steps, shift=1.0, guidance_scale=1.0
+                            setInferenceSteps(50);
+                            setShift(1.0);
+                            setGuidanceScale(1.0);
+                          } else {
+                            // Base: 50 steps, shift=1.0, guidance_scale=7.0 (lego default)
+                            setInferenceSteps(50);
+                            setShift(1.0);
+                            setGuidanceScale(7.0);
                           }
                           setShowModelMenu(false);
                         }}
@@ -2334,27 +2346,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 />
               </div>
               <p className="text-[10px] text-zinc-500">{randomSeed ? t('randomSeedRecommended') : t('fixedSeedReproducible')}</p>
-            </div>
-
-            {/* Audio Format */}
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-1.5">
-                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('audioFormat')}</label>
-                <span className="relative group/tip inline-flex">
-                  <Info size={12} className="text-zinc-400 cursor-help" />
-                  <span className="pointer-events-none absolute hidden group-hover/tip:block bottom-5 left-0 z-50 w-48 rounded-lg bg-zinc-900 p-2 text-[10px] leading-relaxed text-white shadow-xl">
-                    MP3: smaller files. FLAC: lossless archive quality. Both are 48 kHz stereo.
-                  </span>
-                </span>
-              </div>
-              <select
-                value={audioFormat}
-                onChange={(e) => setAudioFormat(e.target.value as 'mp3' | 'flac')}
-                className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-xl px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800 [&>option]:text-zinc-900 [&>option]:dark:text-white"
-              >
-                <option value="mp3">{t('mp3Smaller')}</option>
-                <option value="flac">{t('flacLossless')}</option>
-              </select>
             </div>
 
             {/* ── DiT flow matching (dit-vae) ──────────────────────── */}
