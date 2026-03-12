@@ -133,7 +133,8 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   }, []);
 
   // Mode
-  const [customMode, setCustomMode] = useState(true);
+  // Unified mode: always use the full-featured panel (no simple/custom split)
+  const customMode = true;
 
   // Simple Mode
   const [songDescription, setSongDescription] = useState('');
@@ -523,7 +524,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   // Reuse Effect - must be after all state declarations
   useEffect(() => {
     if (initialData) {
-      setCustomMode(true);
       setLyrics(initialData.song.lyrics);
       setStyle(initialData.song.style);
       setTitle(initialData.song.title);
@@ -1174,8 +1174,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       }
 
       onGenerate({
-        customMode,
-        songDescription: customMode ? undefined : songDescription,
+        songDescription: songDescription || undefined,
         prompt: lyrics,
         lyrics,
         style: styleWithGender,
@@ -1311,22 +1310,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Mode Toggle */}
-            <div className="flex items-center bg-zinc-200 dark:bg-black/40 rounded-lg p-1 border border-zinc-300 dark:border-white/5">
-              <button
-                onClick={() => setCustomMode(false)}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${!customMode ? 'bg-white dark:bg-zinc-800 text-black dark:text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'}`}
-              >
-                {t('simple')}
-              </button>
-              <button
-                onClick={() => setCustomMode(true)}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${customMode ? 'bg-white dark:bg-zinc-800 text-black dark:text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'}`}
-              >
-                {t('custom')}
-              </button>
-            </div>
-
             {/* Model Selection */}
             <div className="relative" ref={modelMenuRef}>
               <button
@@ -1388,518 +1371,81 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
           </div>
         </div>
 
-        {/* SIMPLE MODE */}
-        {!customMode && (
-          <div className="space-y-5">
-            {/* Song Description */}
-            <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden">
-              <div className="px-3 py-2.5 flex items-center justify-between border-b border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-white/5">
-                <span className="text-xs font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                  {t('describeYourSong')}
-                </span>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!token) return;
-                    try {
-                      const result = await generateApi.getRandomDescription(token);
-                      setSongDescription(result.description);
-                      setInstrumental(result.instrumental);
-                      setVocalLanguage(result.vocalLanguage || 'unknown');
-                    } catch (err) {
-                      console.error('Failed to load random description:', err);
-                    }
-                  }}
-                  title="Load random description"
-                  className="p-1 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors"
-                >
-                  <Dices size={14} />
-                </button>
-              </div>
-              <textarea
-                value={songDescription}
-                onChange={(e) => setSongDescription(e.target.value)}
-                placeholder={t('songDescriptionPlaceholder')}
-                className="w-full h-32 bg-transparent p-3 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none resize-none"
-              />
+
+        {/* UNIFIED PANEL */}
+        <div className="space-y-5">
+          {/* Song Description */}
+          <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden">
+            <div className="px-3 py-2.5 flex items-center justify-between border-b border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-white/5">
+              <span className="text-xs font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                {t('describeYourSong')}
+              </span>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!token) return;
+                  try {
+                    const result = await generateApi.getRandomDescription(token);
+                    setSongDescription(result.description);
+                    setInstrumental(result.instrumental);
+                    setVocalLanguage(result.vocalLanguage || 'unknown');
+                  } catch (err) {
+                    console.error('Failed to load random description:', err);
+                  }
+                }}
+                title="Load random description"
+                className="p-1 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors"
+              >
+                <Dices size={14} />
+              </button>
             </div>
-
-            {/* Vocal Language (Simple) */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide px-1">
-                  {t('vocalLanguage')}
-                </label>
-                <select
-                  value={vocalLanguage}
-                  onChange={(e) => setVocalLanguage(e.target.value)}
-                  className="w-full bg-white dark:bg-suno-card border border-zinc-200 dark:border-white/5 rounded-xl px-3 py-2 text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800 [&>option]:text-zinc-900 [&>option]:dark:text-white"
-                >
-                  {VOCAL_LANGUAGE_KEYS.map(lang => (
-                    <option key={lang.value} value={lang.value}>{t(lang.key)}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide px-1">
-                  {t('vocalGender')}
-                </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setVocalGender(vocalGender === 'male' ? '' : 'male')}
-                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${vocalGender === 'male' ? 'bg-pink-600 text-white border-pink-600' : 'border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-white/20'}`}
-                  >
-                    {t('male')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setVocalGender(vocalGender === 'female' ? '' : 'female')}
-                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${vocalGender === 'female' ? 'bg-pink-600 text-white border-pink-600' : 'border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-white/20'}`}
-                  >
-                    {t('female')}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Source Audio — Cover / Repaint (Simple Mode) */}
-            <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden">
-              <div className="px-3 py-2.5 border-b border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-white/[0.02]">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">
-                    {t('cover')} / {t('repaintMode')} / {t('legoMode')}
-                  </span>
-                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-200 dark:bg-white/10 text-zinc-500 dark:text-zinc-400 font-medium uppercase">
-                    optional
-                  </span>
-                </div>
-              </div>
-              <div className="p-3 space-y-2">
-                {/* Source audio mini-player */}
-                {sourceAudioUrl && (
-                  <>
-                  <div className="flex items-center gap-3 p-2 rounded-lg bg-zinc-50 dark:bg-white/[0.03] border border-zinc-100 dark:border-white/5">
-                    <button
-                      type="button"
-                      onClick={() => toggleAudio('source')}
-                      className="relative flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shadow-lg shadow-emerald-500/20 hover:scale-105 transition-transform"
-                    >
-                      {sourcePlaying ? (
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>
-                      ) : (
-                        <svg className="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                      )}
-                      <span className="absolute -bottom-1 -right-1 text-[8px] font-bold bg-zinc-900 text-white px-1 py-0.5 rounded">
-                        {formatTime(sourceDuration)}
-                      </span>
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 truncate mb-1.5">
-                        {sourceAudioTitle || getAudioLabel(sourceAudioUrl)}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-zinc-400 tabular-nums">{formatTime(sourceTime)}</span>
-                        <div
-                          className="relative flex-1 h-1.5 rounded-full bg-zinc-200 dark:bg-white/10 cursor-pointer group/seek"
-                          onClick={(e) => {
-                            if (sourceAudioRef.current && sourceDuration > 0) {
-                              const rect = e.currentTarget.getBoundingClientRect();
-                              const percent = (e.clientX - rect.left) / rect.width;
-                              sourceAudioRef.current.currentTime = percent * sourceDuration;
-                            }
-                          }}
-                        >
-                          {/* Repaint region overlay */}
-                          {renderRepaintRegionOverlay()}
-                          <div
-                            className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all relative"
-                            style={{ width: sourceDuration ? `${Math.min(100, (sourceTime / sourceDuration) * 100)}%` : '0%' }}
-                          >
-                            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-white shadow-md opacity-0 group-hover/seek:opacity-100 transition-opacity" />
-                          </div>
-                        </div>
-                        <span className="text-[10px] text-zinc-400 tabular-nums">{formatTime(sourceDuration)}</span>
-                      </div>
-                    </div>
-                    {/* Understand button */}
-                    <button
-                      type="button"
-                      onClick={() => void handleUnderstand('source', sourceAudioUrl)}
-                      disabled={understandStatus.source === 'running'}
-                      title={t('understandTooltip')}
-                      className="p-1.5 rounded-full hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors disabled:opacity-50"
-                    >
-                      {understandStatus.source === 'running' ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleClearSourceAudio}
-                      className="p-1.5 rounded-full hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-400 hover:text-zinc-600 dark:hover:text-white transition-colors"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-                    </button>
-                  </div>
-                  {/* Understand result panel */}
-                  {understandStatus.source !== 'idle' && (
-                    <div className={`rounded-lg px-3 py-2 text-[11px] space-y-1 ${
-                      understandStatus.source === 'error'
-                        ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
-                        : 'bg-violet-50 dark:bg-violet-900/20 text-violet-800 dark:text-violet-300'
-                    }`}>
-                      {understandStatus.source === 'running' && <span className="flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> {t('understandRunning')}</span>}
-                      {understandStatus.source === 'error' && <span>{t('understandError')}: {understandError.source}</span>}
-                      {understandStatus.source === 'done' && understandResult.source && (
-                        <>
-                          <div className="font-semibold">{t('understandResult')}</div>
-                          {understandResult.source.caption && <div className="truncate opacity-80">🎵 {String(understandResult.source.caption).slice(0, 80)}{String(understandResult.source.caption).length > 80 ? '…' : ''}</div>}
-                          <div className="flex flex-wrap gap-2 opacity-70">
-                            {understandResult.source.bpm && <span>BPM: {String(understandResult.source.bpm)}</span>}
-                            {understandResult.source.keyscale && <span>Key: {String(understandResult.source.keyscale)}</span>}
-                            {understandResult.source.duration && <span>Duration: {Math.round(Number(understandResult.source.duration))}s</span>}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => applyUnderstandResult(understandResult.source!)}
-                            className="mt-1 px-2 py-0.5 rounded bg-violet-600 text-white text-[10px] font-medium hover:bg-violet-700 transition-colors"
-                          >
-                            {t('understandApply')}
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
-                  </>
-                )}
-
-                {/* Cover / Repaint mode controls — shown when source audio is loaded */}
-                {sourceAudioUrl && (
-                  <div className="space-y-2">
-                    {/* Mode toggle */}
-                    <div className="flex items-center gap-1 bg-zinc-100 dark:bg-black/20 rounded-lg p-0.5">
-                      <button
-                        type="button"
-                        onClick={() => setTaskType('cover')}
-                        className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all ${
-                          taskType !== 'repaint' && taskType !== 'lego'
-                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
-                            : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
-                        }`}
-                      >
-                        {t('coverMode')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setTaskType('repaint')}
-                        className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all ${
-                          taskType === 'repaint'
-                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
-                            : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
-                        }`}
-                      >
-                        {t('repaintMode')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setTaskType('lego')}
-                        className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all ${
-                          taskType === 'lego'
-                            ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
-                            : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
-                        }`}
-                      >
-                        {t('legoMode')}
-                      </button>
-                    </div>
-
-                    {/* Mode description */}
-                    <p className="text-[10px] text-zinc-400 dark:text-zinc-500 px-0.5">
-                      {taskType === 'repaint' ? t('repaintModeDescription') : taskType === 'lego' ? t('legoModeDescription') : t('coverModeDescription')}
-                    </p>
-
-                    {/* Cover strength slider (cover mode only) */}
-                    {taskType !== 'repaint' && taskType !== 'lego' && (
-                      <div className="flex items-center gap-2">
-                        <label className="text-[10px] text-zinc-500 dark:text-zinc-400 whitespace-nowrap">{t('audioCoverStrength')}</label>
-                        <input
-                          type="range"
-                          min="0"
-                          max="1"
-                          step="0.05"
-                          value={audioCoverStrength}
-                          onChange={(e) => setAudioCoverStrength(Number(e.target.value))}
-                          className="flex-1 h-1.5 accent-emerald-500"
-                        />
-                        <span className="text-[10px] text-zinc-400 tabular-nums w-7 text-right">{audioCoverStrength.toFixed(2)}</span>
-                      </div>
-                    )}
-
-                    {/* Repaint time range (repaint mode only) */}
-                    {taskType === 'repaint' && (
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <label className="text-[10px] text-zinc-500 dark:text-zinc-400">
-                            {t('repaintStart')}
-                            {sourceDuration > 0 && <span className="text-zinc-400 ml-1">(max {formatTime(sourceDuration)})</span>}
-                          </label>
-                          <input
-                            type="number"
-                            step="0.1"
-                            min="0"
-                            max={sourceDuration > 0 ? sourceDuration : undefined}
-                            placeholder={t('repaintStartPlaceholder')}
-                            value={repaintingStart >= 0 ? repaintingStart : ''}
-                            onChange={(e) => setRepaintingStart(e.target.value === '' ? -1 : Number(e.target.value))}
-                            className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500 dark:focus:border-emerald-500 transition-colors"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] text-zinc-500 dark:text-zinc-400">
-                            {t('repaintEnd')}
-                            {sourceDuration > 0 && <span className="text-zinc-400 ml-1">(max {formatTime(sourceDuration)})</span>}
-                          </label>
-                          <input
-                            type="number"
-                            step="0.1"
-                            min="0"
-                            max={sourceDuration > 0 ? sourceDuration : undefined}
-                            placeholder={t('repaintEndPlaceholder')}
-                            value={repaintingEnd >= 0 ? repaintingEnd : ''}
-                            onChange={(e) => setRepaintingEnd(e.target.value === '' ? -1 : Number(e.target.value))}
-                            className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500 dark:focus:border-emerald-500 transition-colors"
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Lego track selector (lego mode only) */}
-                    {taskType === 'lego' && (
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-zinc-500 dark:text-zinc-400">{t('legoTrackLabel')}</label>
-                        <select
-                          value={trackName}
-                          onChange={(e) => setTrackName(e.target.value)}
-                          className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-amber-500 dark:focus:border-amber-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800"
-                        >
-                          <option value="">{t('legoTrackPlaceholder')}</option>
-                          {TRACK_NAMES.map(name => (
-                            <option key={name} value={name}>{name}</option>
-                          ))}
-                        </select>
-                        {/* Which existing tracks to preserve */}
-                        <div className="pt-1">
-                          <label className="text-[10px] text-zinc-500 dark:text-zinc-400 block mb-1">{t('completeTrackClasses')}</label>
-                          <div className="flex flex-wrap gap-x-3 gap-y-1">
-                            {TRACK_NAMES.map(name => {
-                              const isChecked = completeTrackClassesParsed.includes(name);
-                              return (
-                                <label key={name} className="flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={() => {
-                                      const next = isChecked ? completeTrackClassesParsed.filter(s => s !== name) : [...completeTrackClassesParsed, name];
-                                      setCompleteTrackClasses(next.join(','));
-                                    }}
-                                    className="accent-amber-500"
-                                  />
-                                  {name}
-                                </label>
-                              );
-                            })}
-                          </div>
-                        </div>
-                        <p className="text-[10px] text-amber-600 dark:text-amber-400">{t('legoBaseModelRequired')}</p>
-                      </div>
-                    )}
-
-                    {/* SFT model status banner (repaint only) */}
-                    {taskType === 'repaint' && sftStatus !== 'idle' && (
-                      <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-medium ${
-                        sftStatus === 'available'
-                          ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
-                          : sftStatus === 'downloading' || sftStatus === 'checking'
-                          ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'
-                          : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
-                      }`}>
-                        {sftStatus === 'available' && <CheckCircle2 size={13} />}
-                        {(sftStatus === 'downloading' || sftStatus === 'checking') && <Loader2 size={13} className="animate-spin" />}
-                        {sftStatus === 'unavailable' && <AlertTriangle size={13} />}
-                        <span className="flex-1">
-                          {sftStatus === 'available' && t('sftModelReady')}
-                          {sftStatus === 'checking' && t('sftModelRequired')}
-                          {sftStatus === 'downloading' && t('sftModelDownloading')}
-                          {sftStatus === 'unavailable' && t('sftModelNotFound')}
-                        </span>
-                        {sftStatus === 'unavailable' && (
-                          <a
-                            href="/models"
-                            onClick={(e) => { e.preventDefault(); window.history.pushState({}, '', '/models'); window.dispatchEvent(new PopStateEvent('popstate')); }}
-                            className="flex items-center gap-0.5 underline underline-offset-2"
-                          >
-                            Models <ExternalLink size={10} />
-                          </a>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Upload / Library buttons */}
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openAudioModal('source', 'uploads')}
-                    className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-700 dark:text-zinc-300 px-3 py-2 text-xs font-medium transition-colors border border-zinc-200 dark:border-white/5"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
-                    </svg>
-                    {t('fromLibrary')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => sourceInputRef.current?.click()}
-                    className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-700 dark:text-zinc-300 px-3 py-2 text-xs font-medium transition-colors border border-zinc-200 dark:border-white/5"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-                    </svg>
-                    {t('upload')}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Settings (Simple Mode) */}
-            <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 p-4 space-y-4">
-              <h3 className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide flex items-center gap-2">
-                <Sliders size={14} />
-                {t('quickSettings')}
-              </h3>
-
-              {/* Duration */}
-              <EditableSlider
-                label={t('duration')}
-                value={duration}
-                min={-1}
-                max={activeMaxDuration}
-                step={5}
-                onChange={setDuration}
-                formatDisplay={(val) => val === -1 ? t('auto') : `${val}${t('seconds')}`}
-                title={''}
-                autoLabel={t('auto')}
-              />
-
-              {/* BPM */}
-              <EditableSlider
-                label="BPM"
-                value={bpm}
-                min={0}
-                max={300}
-                step={5}
-                onChange={setBpm}
-                formatDisplay={(val) => val === 0 ? 'Auto' : val.toString()}
-                autoLabel="Auto"
-              />
-
-              {/* Key & Time Signature */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('key')}</label>
-                  <select
-                    value={keyScale}
-                    onChange={setKeyScale}
-                    className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-xl px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800 [&>option]:text-zinc-900 [&>option]:dark:text-white"
-                  >
-                    <option value="">Auto</option>
-                    {KEY_SIGNATURES.filter(k => k).map(key => (
-                      <option key={key} value={key}>{key}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('time')}</label>
-                  <select
-                    value={timeSignature}
-                    onChange={setTimeSignature}
-                    className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-xl px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800 [&>option]:text-zinc-900 [&>option]:dark:text-white"
-                  >
-                    <option value="">Auto</option>
-                    {TIME_SIGNATURES.filter(t => t).map(time => (
-                      <option key={time} value={time}>{time}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Variations */}
-              <EditableSlider
-                label={t('variations')}
-                value={batchSize}
-                min={1}
-                max={4}
-                step={1}
-                onChange={setBatchSize}
-              />
-              <div style={{display: 'none'}}>
-                <input
-                  type="range"
-                  min="1"
-                  max="4"
-                  step="1"
-                  value={batchSize}
-                  onChange={setBatchSize}
-                  className="w-full h-2 bg-zinc-200 dark:bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-pink-500"
-                />
-                <p className="text-[10px] text-zinc-500">{t('numberOfVariations')}</p>
-              </div>
-            </div>
+            <textarea
+              value={songDescription}
+              onChange={(e) => setSongDescription(e.target.value)}
+              placeholder={t('songDescriptionPlaceholder')}
+              className="w-full h-24 bg-transparent p-3 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none resize-none"
+            />
           </div>
-        )}
 
-        {/* CUSTOM MODE */}
-        {customMode && (
-          <div className="space-y-5">
-            {/* Audio Section */}
-            <div
-              onDrop={(e) => handleDrop(e, audioTab)}
-              onDragOver={handleDragOver}
-              className="bg-white dark:bg-[#1a1a1f] rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden"
-            >
-              {/* Header with Audio label and tabs */}
-              <div className="px-3 py-2.5 border-b border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-white/[0.02]">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">{t('audio')}</span>
-                  <div className="flex items-center gap-1 bg-zinc-200/50 dark:bg-black/30 rounded-lg p-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setAudioTab('reference')}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
-                        audioTab === 'reference'
-                          ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
-                          : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
-                      }`}
-                    >
-                      {t('reference')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAudioTab('source')}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
-                        audioTab === 'source'
-                          ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
-                          : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
-                      }`}
-                    >
-                      {t('cover')}
-                    </button>
-                  </div>
+          {/* Audio Section */}
+          <div
+            onDrop={(e) => handleDrop(e, audioTab)}
+            onDragOver={handleDragOver}
+            className="bg-white dark:bg-[#1a1a1f] rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden"
+          >
+            {/* Header with Audio label and tabs */}
+            <div className="px-3 py-2.5 border-b border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-white/[0.02]">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">{t('audio')}</span>
+                <div className="flex items-center gap-1 bg-zinc-200/50 dark:bg-black/30 rounded-lg p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setAudioTab('reference')}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                      audioTab === 'reference'
+                        ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
+                        : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                    }`}
+                  >
+                    {t('reference')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAudioTab('source')}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                      audioTab === 'source'
+                        ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm'
+                        : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
+                    }`}
+                  >
+                    {t('cover')}
+                  </button>
                 </div>
               </div>
+            </div>
 
-              {/* Audio Content */}
-              <div className="p-3 space-y-2">
+            {/* Audio Content */}
+            <div className="p-3 space-y-2">
                 {/* Reference Audio Player */}
                 {audioTab === 'reference' && referenceAudioUrl && (
                   <>
@@ -2424,28 +1970,13 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               />
             </div>
           </div>
-        )}
 
         {/* COMMON SETTINGS */}
         <div className="space-y-4">
-          {/* Instrumental Toggle (Simple Mode) */}
-          {!customMode && (
-            <div className="flex items-center justify-between px-1 py-2">
-              <div className="flex items-center gap-2">
-                <Music2 size={14} className="text-zinc-500" />
-                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('instrumental')}</span>
-              </div>
-              <button
-                onClick={() => setInstrumental(!instrumental)}
-                className={`w-11 h-6 rounded-full flex items-center transition-colors duration-200 px-1 border border-zinc-200 dark:border-white/5 ${instrumental ? 'bg-pink-600' : 'bg-zinc-300 dark:bg-black/40'}`}
-              >
-                <div className={`w-4 h-4 rounded-full bg-white transform transition-transform duration-200 shadow-sm ${instrumental ? 'translate-x-5' : 'translate-x-0'}`} />
-              </button>
-            </div>
-          )}
+
 
           {/* Vocal Language (Custom mode) */}
-          {customMode && !instrumental && (
+          {!instrumental && (
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide px-1">
@@ -2487,8 +2018,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
         </div>
 
         {/* LORA CONTROL PANEL */}
-        {customMode && (
-          <>
+        <>
             <button
               onClick={() => setShowLoraPanel(!showLoraPanel)}
               className="w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors"
@@ -2575,8 +2105,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 </div>
               </div>
             )}
-          </>
-        )}
+        </>
 
         {/* MUSIC PARAMETERS */}
         <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 p-4 space-y-4">
@@ -2965,57 +2494,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 >
                   Transcribe
                 </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Choose text-to-music or audio-based modes.">{t('taskType')}</label>
-                <select
-                  value={taskType}
-                  onChange={(e) => setTaskType(e.target.value)}
-                  className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-xl px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800 [&>option]:text-zinc-900 [&>option]:dark:text-white"
-                >
-                  <option value="text2music">{t('textToMusic')}</option>
-                  <option value="audio2audio">{t('audio2audio')}</option>
-                  <option value="cover">{t('coverTask')}</option>
-                  <option value="repaint">{t('repaintTask')}</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400" title="How strongly the source audio shapes the result.">{t('audioCoverStrength')}</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max="1"
-                  value={audioCoverStrength}
-                  onChange={(e) => setAudioCoverStrength(Number(e.target.value))}
-                  className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Start time for the region to repaint (seconds).">{t('repaintingStart')}</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={repaintingStart}
-                  onChange={(e) => setRepaintingStart(Number(e.target.value))}
-                  className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400" title="End time for the region to repaint (seconds).">{t('repaintingEnd')}</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={repaintingEnd}
-                  onChange={(e) => setRepaintingEnd(Number(e.target.value))}
-                  className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none"
-                />
               </div>
             </div>
 

@@ -78,8 +78,8 @@ const audioUpload = multer({
 });
 
 interface GenerateBody {
-  // Mode
-  customMode: boolean;
+  // Mode (kept for backward compatibility; unified mode always uses full-featured panel)
+  customMode?: boolean;
 
   // Simple Mode
   songDescription?: string;
@@ -265,17 +265,11 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       ditModel,
     } = req.body as GenerateBody;
 
-    if (!customMode && !songDescription) {
-      res.status(400).json({ error: 'Song description required for simple mode' });
-      return;
-    }
-
-    // In custom mode, at least one content field is required — unless the request
-    // is for cover, audio2audio, repaint, or lego mode and a source audio is provided
-    // (the source audio itself is the primary input; style/lyrics are optional).
+    // At least one content field is required — unless the request is for cover/repaint/lego
+    // and a source audio is provided (the source audio itself is the primary input).
     const requiresSourceAudio = taskType === 'cover' || taskType === 'audio2audio' || taskType === 'repaint' || taskType === 'lego';
-    if (customMode && !style && !lyrics && !referenceAudioUrl && !(requiresSourceAudio && sourceAudioUrl)) {
-      res.status(400).json({ error: 'Style, lyrics, or reference audio required for custom mode' });
+    if (!songDescription && !style && !lyrics && !referenceAudioUrl && !(requiresSourceAudio && sourceAudioUrl)) {
+      res.status(400).json({ error: 'Please provide a description, style, lyrics, or audio' });
       return;
     }
 
@@ -283,7 +277,6 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
     console.log(
       `[API] POST /generate:` +
       `\n  taskType    = ${taskType || 'text2music'}` +
-      `\n  customMode  = ${customMode}` +
       `\n  ditModel    = ${ditModel || '(default)'}` +
       `\n  sourceAudio = ${sourceAudioUrl || 'none'}` +
       `\n  repaint     = [${repaintingStart ?? 'start'}, ${repaintingEnd ?? 'end'}]` +
@@ -292,7 +285,7 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
     );
 
     const params = {
-      customMode,
+      customMode: true,
       songDescription,
       lyrics,
       style,

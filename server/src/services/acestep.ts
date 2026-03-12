@@ -42,7 +42,7 @@ function getAudioDuration(filePath: string): number {
 // ---------------------------------------------------------------------------
 
 export interface GenerationParams {
-  customMode: boolean;
+  customMode?: boolean; // kept for backward compatibility; ignored in unified mode
   songDescription?: string;
   lyrics: string;
   style: string;
@@ -506,7 +506,6 @@ async function runViaSpawn(
   console.log(
     `[Job ${jobId}] Request received:` +
     `\n  mode          = ${taskType}` +
-    `\n  customMode    = ${params.customMode}` +
     `\n  ditModel      = ${params.ditModel || '(default)'}` +
     `\n  sourceAudio   = ${params.sourceAudioUrl || 'none'}` +
     `\n  repaintRegion = [${params.repaintingStart ?? 'start'}, ${params.repaintingEnd ?? 'end'}]` +
@@ -525,7 +524,8 @@ async function runViaSpawn(
     // (cover / repaint / passthrough).  Only include the fields each binary
     // actually understands so the format stays clean and predictable.
     const caption = params.style || 'pop music';
-    const prompt  = params.customMode ? caption : (params.songDescription || caption);
+    // Use song description when provided (user's natural-language intent), falling back to style/caption
+    const prompt  = params.songDescription || caption;
     // Instrumental: pass the special "[Instrumental]" lyrics marker so the LLM
     // skips lyrics generation (as documented in the acestep.cpp README).
     const lyrics  = params.instrumental ? '[Instrumental]' : (params.lyrics || '');
@@ -765,7 +765,7 @@ async function runViaSpawn(
 
 function buildHttpRequest(params: GenerationParams): Record<string, unknown> {
   const caption = params.style || 'pop music';
-  const prompt = params.customMode ? caption : (params.songDescription || caption);
+  const prompt = params.songDescription || caption;
   const lyrics = params.instrumental ? '' : (params.lyrics || '');
   const isThinking = params.thinking ?? false;
   const isEnhance  = params.enhance  ?? false;
@@ -983,7 +983,6 @@ async function processGeneration(
   console.log(
     `[Job ${jobId}] Starting generation (${mode} mode):` +
     `\n  taskType    = ${params.taskType || 'text2music'}` +
-    `\n  customMode  = ${params.customMode}` +
     `\n  ditModel    = ${params.ditModel || '(default)'}` +
     `\n  sourceAudio = ${params.sourceAudioUrl || 'none'}` +
     `\n  audioCodes  = ${params.audioCodes ? '[provided]' : 'none'}`
