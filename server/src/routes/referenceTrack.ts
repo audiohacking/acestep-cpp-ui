@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import { promises as fs } from 'fs';
 import { fileURLToPath } from 'url';
+import rateLimit from 'express-rate-limit';
 import { pool } from '../db/pool.js';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth.js';
 import { getStorageProvider } from '../services/storage/factory.js';
@@ -14,6 +15,19 @@ const router = Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const AUDIO_DIR = path.join(__dirname, '../../public/audio');
+
+// Per-IP rate limiter for CPU-intensive understand operations (max 6 requests per minute)
+const understandRateLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests — please wait before analysing another track' },
+});
+
+// Apply rate limiting to all understand routes
+router.use('/understand-url', understandRateLimiter);
+router.use('/:id/understand', understandRateLimiter);
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -350,7 +364,7 @@ router.post('/:id/understand', authMiddleware, async (req: AuthenticatedRequest,
 });
 
 // Understand audio by URL (for source/generated audio without a reference track DB entry)
-router.post('/understand-url', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/understand-url', understandRateLimiter, authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   const { audioUrl } = req.body as { audioUrl?: string };
   if (!audioUrl || typeof audioUrl !== 'string') {
     res.status(400).json({ error: 'audioUrl is required' });

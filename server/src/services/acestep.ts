@@ -9,9 +9,10 @@
  */
 
 import { spawn } from 'child_process';
-import { writeFile, mkdir, readFile } from 'fs/promises';
+import { writeFile, mkdir, readFile, mkdtemp, rm } from 'fs/promises';
 import { execFileSync } from 'child_process';
 import { existsSync, readdirSync } from 'fs';
+import { tmpdir } from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { config } from '../config/index.js';
@@ -82,10 +83,20 @@ export interface GenerationParams {
   useAdg?: boolean;
   cfgIntervalStart?: number;
   cfgIntervalEnd?: number;
+  customTimesteps?: string;
   useCotMetas?: boolean;
   useCotCaption?: boolean;
   useCotLanguage?: boolean;
   autogen?: boolean;
+  constrainedDecodingDebug?: boolean;
+  allowLmBatch?: boolean;
+  getScores?: boolean;
+  getLrc?: boolean;
+  scoreScale?: number;
+  lmBatchChunkSize?: number;
+  trackName?: string;
+  completeTrackClasses?: string[];
+  isFormatCaption?: boolean;
   ditModel?: string;
 }
 
@@ -563,16 +574,14 @@ async function runViaSpawn(
           throw new Error("task_type='lego' requires a track name (e.g. 'guitar')");
         }
         requestJson.lego = params.trackName;
-        // Lego forces all DiT steps to use source context (audio_cover_strength=1.0
-        // per the README — dit-vae applies this internally when lego is set).
         // Use recommended base-model settings if the caller hasn't specified them.
-        if (!params.inferenceSteps || params.inferenceSteps <= 8) {
+        if (params.inferenceSteps === undefined || params.inferenceSteps === null) {
           requestJson.inference_steps = 50;
         }
-        if (!params.guidanceScale || params.guidanceScale <= 0) {
+        if (params.guidanceScale === undefined || params.guidanceScale === null) {
           requestJson.guidance_scale = 7.0;
         }
-        if (!params.shift || params.shift >= 3.0) {
+        if (params.shift === undefined || params.shift === null) {
           requestJson.shift = 1.0;
         }
       }
@@ -1098,8 +1107,6 @@ export async function runUnderstand(audioUrl: string): Promise<UnderstandResult>
   }
 
   // Write output JSON to a temp file so we can parse it reliably.
-  const { mkdtemp, rm, readFile: fsReadFile } = await import('fs/promises');
-  const { tmpdir } = await import('os');
   const tmpDir = await mkdtemp(path.join(tmpdir(), 'ace-understand-'));
   const outJsonPath = path.join(tmpDir, 'understand.json');
 
@@ -1117,7 +1124,7 @@ export async function runUnderstand(audioUrl: string): Promise<UnderstandResult>
     await runBinary(understandBin, args, 'ace-understand');
 
     // Read and parse the output JSON
-    const raw = await fsReadFile(outJsonPath, 'utf-8');
+    const raw = await readFile(outJsonPath, 'utf-8');
     const result: UnderstandResult = JSON.parse(raw);
     console.log('[understand] Result:', JSON.stringify(result, null, 2));
     return result;

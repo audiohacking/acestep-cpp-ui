@@ -271,9 +271,9 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
     }
 
     // In custom mode, at least one content field is required — unless the request
-    // is for cover, audio2audio, or repaint mode and a source audio is provided
+    // is for cover, audio2audio, repaint, or lego mode and a source audio is provided
     // (the source audio itself is the primary input; style/lyrics are optional).
-    const requiresSourceAudio = taskType === 'cover' || taskType === 'audio2audio' || taskType === 'repaint';
+    const requiresSourceAudio = taskType === 'cover' || taskType === 'audio2audio' || taskType === 'repaint' || taskType === 'lego';
     if (customMode && !style && !lyrics && !referenceAudioUrl && !(requiresSourceAudio && sourceAudioUrl)) {
       res.status(400).json({ error: 'Style, lyrics, or reference audio required for custom mode' });
       return;

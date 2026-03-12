@@ -285,7 +285,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
 
   // Check if model is the base variant (required for lego)
   const isBaseModel = (modelId: string): boolean => {
-    return modelId === BASE_MODEL_NAME || modelId.startsWith('acestep-v15-base');
+    return modelId.startsWith('acestep-v15-base');
   };
 
   // SFT model download/availability state for repaint mode
