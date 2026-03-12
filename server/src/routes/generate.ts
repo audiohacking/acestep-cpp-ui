@@ -454,9 +454,10 @@ router.get('/status/:jobId', authMiddleware, async (req: AuthenticatedRequest, r
 
               try {
                 const { buffer } = await downloadAudioToBuffer(audioUrl);
-                const ext = audioUrl.includes('.flac') ? '.flac' : '.mp3';
+                const ext = audioUrl.endsWith('.flac') ? '.flac' : audioUrl.endsWith('.wav') ? '.wav' : '.mp3';
+                const mimeType = ext === '.wav' ? 'audio/wav' : ext === '.flac' ? 'audio/flac' : 'audio/mpeg';
                 const storageKey = `${req.user!.id}/${songId}${ext}`;
-                await storage.upload(storageKey, buffer, `audio/${ext.slice(1)}`);
+                await storage.upload(storageKey, buffer, mimeType);
                 const storedPath = storage.getPublicUrl(storageKey);
 
                 await pool.query(
