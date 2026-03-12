@@ -574,6 +574,10 @@ async function runViaSpawn(
           throw new Error("task_type='lego' requires a track name (e.g. 'guitar')");
         }
         requestJson.lego = params.trackName;
+        // Which existing tracks are "complete" and should not be overwritten.
+        if (params.completeTrackClasses && params.completeTrackClasses.length > 0) {
+          requestJson.complete_track_classes = params.completeTrackClasses;
+        }
         // Use recommended base-model settings if the caller hasn't specified them.
         if (params.inferenceSteps === undefined || params.inferenceSteps === null) {
           requestJson.inference_steps = 50;

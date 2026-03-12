@@ -214,6 +214,11 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const [trackName, setTrackName] = useState('');
   const [completeTrackClasses, setCompleteTrackClasses] = useState('');
   const [isFormatCaption, setIsFormatCaption] = useState(false);
+  // Parsed array — memoised so the split doesn't run on every render
+  const completeTrackClassesParsed = useMemo(
+    () => completeTrackClasses.split(',').map(s => s.trim()).filter(Boolean),
+    [completeTrackClasses]
+  );
   const [maxDurationWithLm, setMaxDurationWithLm] = useState(240);
   const [maxDurationWithoutLm, setMaxDurationWithoutLm] = useState(240);
 
@@ -1224,13 +1229,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
         scoreScale,
         lmBatchChunkSize,
         trackName: trackName.trim() || undefined,
-        completeTrackClasses: (() => {
-          const parsed = completeTrackClasses
-            .split(',')
-            .map((item) => item.trim())
-            .filter(Boolean);
-          return parsed.length ? parsed : undefined;
-        })(),
+        completeTrackClasses: completeTrackClassesParsed.length ? completeTrackClassesParsed : undefined,
         isFormatCaption,
         loraLoaded,
       });
@@ -1687,6 +1686,29 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                             <option key={name} value={name}>{name}</option>
                           ))}
                         </select>
+                        {/* Which existing tracks to preserve */}
+                        <div className="pt-1">
+                          <label className="text-[10px] text-zinc-500 dark:text-zinc-400 block mb-1">{t('completeTrackClasses')}</label>
+                          <div className="flex flex-wrap gap-x-3 gap-y-1">
+                            {TRACK_NAMES.map(name => {
+                              const isChecked = completeTrackClassesParsed.includes(name);
+                              return (
+                                <label key={name} className="flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => {
+                                      const next = isChecked ? completeTrackClassesParsed.filter(s => s !== name) : [...completeTrackClassesParsed, name];
+                                      setCompleteTrackClasses(next.join(','));
+                                    }}
+                                    className="accent-amber-500"
+                                  />
+                                  {name}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
                         <p className="text-[10px] text-amber-600 dark:text-amber-400">{t('legoBaseModelRequired')}</p>
                       </div>
                     )}
@@ -2182,6 +2204,29 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                             <option key={name} value={name}>{name}</option>
                           ))}
                         </select>
+                        {/* Which existing tracks to preserve */}
+                        <div className="pt-1">
+                          <label className="text-[10px] text-zinc-500 dark:text-zinc-400 block mb-1">{t('completeTrackClasses')}</label>
+                          <div className="flex flex-wrap gap-x-3 gap-y-1">
+                            {TRACK_NAMES.map(name => {
+                              const isChecked = completeTrackClassesParsed.includes(name);
+                              return (
+                                <label key={name} className="flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => {
+                                      const next = isChecked ? completeTrackClassesParsed.filter(s => s !== name) : [...completeTrackClassesParsed, name];
+                                      setCompleteTrackClasses(next.join(','));
+                                    }}
+                                    className="accent-amber-500"
+                                  />
+                                  {name}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
                         <p className="text-[10px] text-amber-600 dark:text-amber-400">{t('legoBaseModelRequired')}</p>
                       </div>
                     )}
@@ -3049,46 +3094,6 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                   onChange={(e) => setLmBatchChunkSize(Number(e.target.value))}
                   className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none"
                 />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('trackName')}</label>
-              <select
-                value={trackName}
-                onChange={(e) => setTrackName(e.target.value)}
-                className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800"
-              >
-                <option value="">None</option>
-                {TRACK_NAMES.map(name => (
-                  <option key={name} value={name}>{name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('completeTrackClasses')}</label>
-              <div className="flex flex-wrap gap-2">
-                {TRACK_NAMES.map(name => {
-                  const selected = completeTrackClasses.split(',').map(s => s.trim()).filter(Boolean);
-                  const isChecked = selected.includes(name);
-                  return (
-                    <label key={name} className="flex items-center gap-1 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => {
-                          const next = isChecked
-                            ? selected.filter(s => s !== name)
-                            : [...selected, name];
-                          setCompleteTrackClasses(next.join(','));
-                        }}
-                        className="accent-pink-600"
-                      />
-                      {name}
-                    </label>
-                  );
-                })}
               </div>
             </div>
 
