@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Sparkles, ChevronDown, Settings2, Trash2, Music2, Sliders, Dices, Hash, RefreshCw, Plus, Upload, Play, Pause, Loader2, AlertTriangle, CheckCircle2, ExternalLink } from 'lucide-react';
+import { Sparkles, ChevronDown, Settings2, Trash2, Music2, Sliders, Dices, Hash, RefreshCw, Plus, Upload, Play, Pause, Loader2, AlertTriangle, CheckCircle2, ExternalLink, Info } from 'lucide-react';
 import { GenerationParams, Song } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../context/I18nContext';
@@ -2235,6 +2235,16 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               />
             </label>
 
+            {uploadError && (
+              <div className="text-[11px] text-rose-500">{uploadError}</div>
+            )}
+
+            {/* ── Output ─────────────────────────────────────────────── */}
+            <div className="flex items-center gap-2 pt-1">
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest whitespace-nowrap">Output</span>
+              <div className="flex-1 border-t border-zinc-200 dark:border-white/10" />
+            </div>
+
             {/* Duration */}
             <EditableSlider
               label={t('duration')}
@@ -2245,7 +2255,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               onChange={setDuration}
               formatDisplay={(val) => val === -1 ? t('auto') : `${val}${t('seconds')}`}
               autoLabel={t('auto')}
-              helpText={`${t('auto')} - 10 ${t('min')}`}
+              helpText="Target audio duration in seconds. −1 = LLM picks it. Clamped to [1, 600] s after generation."
             />
 
             {/* Batch Size */}
@@ -2256,14 +2266,21 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               max={4}
               step={1}
               onChange={setBatchSize}
-              helpText={t('numberOfVariations')}
-              title="Creates multiple variations in a single run. More variations = longer total time."
+              helpText="Number of DiT variations per LM output. All share the same lyrics; differences are timbral."
             />
 
             {/* Bulk Generate */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('bulkGenerate')}</label>
+                <div className="flex items-center gap-1.5">
+                  <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('bulkGenerate')}</label>
+                  <span className="relative group/tip inline-flex">
+                    <Info size={12} className="text-zinc-400 cursor-help" />
+                    <span className="pointer-events-none absolute hidden group-hover/tip:block bottom-5 left-0 z-50 w-56 rounded-lg bg-zinc-900 p-2 text-[10px] leading-relaxed text-white shadow-xl">
+                      Queues N fully independent generation jobs (different seeds, different lyrics).
+                    </span>
+                  </span>
+                </div>
                 <span className="text-xs font-mono text-zinc-900 dark:text-white bg-zinc-100 dark:bg-black/20 px-2 py-0.5 rounded">
                   {bulkCount} {t(bulkCount === 1 ? 'job' : 'jobs')}
                 </span>
@@ -2283,95 +2300,20 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                   </button>
                 ))}
               </div>
-              <p className="text-[10px] text-zinc-500">{t('queueMultipleJobs')}</p>
-            </div>
-
-            {/* Inference Steps */}
-            <EditableSlider
-              label={t('inferenceSteps')}
-              value={inferenceSteps}
-              min={1}
-              max={isTurboModel(selectedModel) ? 20 : 200}
-              step={1}
-              onChange={setInferenceSteps}
-              helpText={t('moreStepsBetterQuality')}
-              title="More steps usually improves quality but slows generation."
-            />
-
-            {/* Guidance Scale */}
-            <EditableSlider
-              label={t('guidanceScale')}
-              value={guidanceScale}
-              min={1}
-              max={15}
-              step={0.1}
-              onChange={setGuidanceScale}
-              formatDisplay={(val) => val.toFixed(1)}
-              helpText={t('howCloselyFollowPrompt')}
-              title="How strongly the model follows the prompt. Higher = stricter, lower = freer."
-            />
-
-            {/* Audio Format & Inference Method */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('audioFormat')}</label>
-                <select
-                  value={audioFormat}
-                  onChange={(e) => setAudioFormat(e.target.value as 'mp3' | 'flac')}
-                  className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-xl px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800 [&>option]:text-zinc-900 [&>option]:dark:text-white"
-                >
-                  <option value="mp3">{t('mp3Smaller')}</option>
-                  <option value="flac">{t('flacLossless')}</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Deterministic is more repeatable; stochastic adds randomness.">{t('inferMethod')}</label>
-                <select
-                  value={inferMethod}
-                  onChange={(e) => setInferMethod(e.target.value as 'ode' | 'sde')}
-                  className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-xl px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800 [&>option]:text-zinc-900 [&>option]:dark:text-white"
-                >
-                  <option value="ode">{t('odeDeterministic')}</option>
-                  <option value="sde">{t('sdeStochastic')}</option>
-                </select>
-              </div>
-            </div>
-
-            {/* LM Backend */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('lmBackendLabel')}</label>
-              <select
-                value={lmBackend}
-                onChange={(e) => setLmBackend(e.target.value as 'pt' | 'vllm')}
-                className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none"
-              >
-                <option value="pt">{t('lmBackendPt')}</option>
-                <option value="vllm">{t('lmBackendVllm')}</option>
-              </select>
-              <p className="text-[10px] text-zinc-500">{t('lmBackendHint')}</p>
-            </div>
-
-            {/* LM Model */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('lmModelLabel')}</label>
-              <select
-                value={lmModel}
-                onChange={(e) => { const v = e.target.value; setLmModel(v); localStorage.setItem('ace-lmModel', v); }}
-                className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none"
-              >
-                <option value="acestep-5Hz-lm-0.6B">{t('lmModel06B')}</option>
-                <option value="acestep-5Hz-lm-1.7B">{t('lmModel17B')}</option>
-                <option value="acestep-5Hz-lm-4B">{t('lmModel4B')}</option>
-              </select>
-              <p className="text-[10px] text-zinc-500">{t('lmModelHint')}</p>
             </div>
 
             {/* Seed */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <Dices size={14} className="text-zinc-500" />
-                  <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Fixing the seed makes results repeatable. Random is recommended for variety.">{t('seed')}</span>
+                  <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('seed')}</span>
+                  <span className="relative group/tip inline-flex">
+                    <Info size={12} className="text-zinc-400 cursor-help" />
+                    <span className="pointer-events-none absolute hidden group-hover/tip:block bottom-5 left-0 z-50 w-56 rounded-lg bg-zinc-900 p-2 text-[10px] leading-relaxed text-white shadow-xl">
+                      RNG seed (int64). −1 = random. Fixed seed makes results repeatable across runs. Batch elements use seed+0, seed+1, …
+                    </span>
+                  </span>
                 </div>
                 <button
                   onClick={() => setRandomSeed(!randomSeed)}
@@ -2394,68 +2336,127 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               <p className="text-[10px] text-zinc-500">{randomSeed ? t('randomSeedRecommended') : t('fixedSeedReproducible')}</p>
             </div>
 
-            {/* Thinking Toggle */}
-            <div className="flex items-center justify-between py-2 border-t border-zinc-100 dark:border-white/5">
-              <span className={`text-xs font-medium ${loraLoaded ? 'text-zinc-400 dark:text-zinc-600' : 'text-zinc-600 dark:text-zinc-400'}`} title="Lets the lyric model reason about structure and metadata. Slightly slower.">{t('thinkingCot')}</span>
-              <button
-                onClick={() => !loraLoaded && setThinking(!thinking)}
-                disabled={loraLoaded}
-                className={`w-10 h-5 rounded-full flex items-center transition-colors duration-200 px-0.5 border border-zinc-200 dark:border-white/5 ${thinking ? 'bg-pink-600' : 'bg-zinc-300 dark:bg-black/40'} ${loraLoaded ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+            {/* Audio Format */}
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('audioFormat')}</label>
+                <span className="relative group/tip inline-flex">
+                  <Info size={12} className="text-zinc-400 cursor-help" />
+                  <span className="pointer-events-none absolute hidden group-hover/tip:block bottom-5 left-0 z-50 w-48 rounded-lg bg-zinc-900 p-2 text-[10px] leading-relaxed text-white shadow-xl">
+                    MP3: smaller files. FLAC: lossless archive quality. Both are 48 kHz stereo.
+                  </span>
+                </span>
+              </div>
+              <select
+                value={audioFormat}
+                onChange={(e) => setAudioFormat(e.target.value as 'mp3' | 'flac')}
+                className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-xl px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800 [&>option]:text-zinc-900 [&>option]:dark:text-white"
               >
-                <div className={`w-4 h-4 rounded-full bg-white transform transition-transform duration-200 shadow-sm ${thinking ? 'translate-x-5' : 'translate-x-0'}`} />
-              </button>
+                <option value="mp3">{t('mp3Smaller')}</option>
+                <option value="flac">{t('flacLossless')}</option>
+              </select>
             </div>
+
+            {/* ── DiT flow matching (dit-vae) ──────────────────────── */}
+            <div className="flex items-center gap-2 pt-1">
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest whitespace-nowrap">DiT flow matching (dit-vae)</span>
+              <div className="flex-1 border-t border-zinc-200 dark:border-white/10" />
+            </div>
+
+            {/* Inference Steps */}
+            <EditableSlider
+              label={t('inferenceSteps')}
+              value={inferenceSteps}
+              min={1}
+              max={isTurboModel(selectedModel) ? 20 : 200}
+              step={1}
+              onChange={setInferenceSteps}
+              helpText="Number of denoising steps. Turbo preset: 8. SFT/base preset: 50. More steps = better quality but slower."
+            />
+
+            {/* Guidance Scale */}
+            <EditableSlider
+              label={t('guidanceScale')}
+              value={guidanceScale}
+              min={0}
+              max={15}
+              step={0.1}
+              onChange={setGuidanceScale}
+              formatDisplay={(val) => val.toFixed(1)}
+              helpText="CFG scale for the DiT. 0.0 = auto (resolved to 1.0, CFG disabled). Any value > 1.0 on a turbo model is overridden to 1.0."
+            />
 
             {/* Shift */}
             <EditableSlider
               label={t('shift')}
               value={shift}
-              min={1}
-              max={5}
+              min={0.1}
+              max={8}
               step={0.1}
               onChange={setShift}
               formatDisplay={(val) => val.toFixed(1)}
-              helpText={t('timestepShiftForBase')}
-              title="Adjusts the diffusion schedule. Only affects base model."
+              helpText="Flow-matching schedule shift — controls the timestep distribution (shift = s·t / (1+(s−1)·t)). Turbo preset: 3.0. SFT/lego preset: 1.0. Values near 1.0 give a linear schedule; higher values front-load denoising."
             />
 
-            {/* Divider */}
-            <div className="border-t border-zinc-200 dark:border-white/10 pt-4">
-              <p className="text-[10px] text-zinc-500 uppercase tracking-wide font-bold mb-3">{t('expertControls')}</p>
-            </div>
-
-            {uploadError && (
-              <div className="text-[11px] text-rose-500">{uploadError}</div>
-            )}
-
-            {/* LM Parameters */}
-            <button
-              onClick={() => setShowLmParams(!showLmParams)}
-              className="w-full flex items-center justify-between px-4 py-3 bg-white/60 dark:bg-black/20 rounded-xl border border-zinc-200/70 dark:border-white/10 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <Music2 size={16} className="text-zinc-500" />
-                <div className="flex flex-col items-start">
-                  <span title="Controls the 5Hz lyric/caption model sampling behavior.">{t('lmParameters')}</span>
-                  <span className="text-[11px] text-zinc-400 dark:text-zinc-500 font-normal">{t('controlLyricGeneration')}</span>
+            {/* ── LM sampling (ace-qwen3) — text2music only ─────────── */}
+            {taskType === 'text2music' && (
+              <>
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest whitespace-nowrap">LM sampling (ace-qwen3)</span>
+                  <div className="flex-1 border-t border-zinc-200 dark:border-white/10" />
                 </div>
-              </div>
-              <ChevronDown size={16} className={`text-zinc-500 transition-transform ${showLmParams ? 'rotate-180' : ''}`} />
-            </button>
 
-            {showLmParams && (
-              <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 p-4 space-y-4">
+                {/* LM Model */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('lmModelLabel')}</label>
+                    <span className="relative group/tip inline-flex">
+                      <Info size={12} className="text-zinc-400 cursor-help" />
+                      <span className="pointer-events-none absolute hidden group-hover/tip:block bottom-5 left-0 z-50 w-56 rounded-lg bg-zinc-900 p-2 text-[10px] leading-relaxed text-white shadow-xl">
+                        ace-qwen3 model size. 0.6B is fastest; 4B produces the best lyrics and captions.
+                      </span>
+                    </span>
+                  </div>
+                  <select
+                    value={lmModel}
+                    onChange={(e) => { const v = e.target.value; setLmModel(v); localStorage.setItem('ace-lmModel', v); }}
+                    className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none"
+                  >
+                    <option value="acestep-5Hz-lm-0.6B">{t('lmModel06B')}</option>
+                    <option value="acestep-5Hz-lm-1.7B">{t('lmModel17B')}</option>
+                    <option value="acestep-5Hz-lm-4B">{t('lmModel4B')}</option>
+                  </select>
+                </div>
+
+                {/* CoT Caption toggle */}
+                <div className="flex items-center justify-between py-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">CoT Caption</span>
+                    <span className="relative group/tip inline-flex">
+                      <Info size={12} className="text-zinc-400 cursor-help" />
+                      <span className="pointer-events-none absolute hidden group-hover/tip:block bottom-5 left-0 z-50 w-60 rounded-lg bg-zinc-900 p-2 text-[10px] leading-relaxed text-white shadow-xl">
+                        <strong>use_cot_caption</strong> (default: on) — When enabled, the LLM enriches your caption using chain-of-thought reasoning before passing it to the DiT (only when the LLM is generating missing metadata). Disable to use your caption verbatim without AI rewriting.
+                      </span>
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setUseCotCaption(!useCotCaption)}
+                    className={`w-10 h-5 rounded-full flex items-center transition-colors duration-200 px-0.5 border border-zinc-200 dark:border-white/5 ${useCotCaption ? 'bg-pink-600' : 'bg-zinc-300 dark:bg-black/40'}`}
+                  >
+                    <div className={`w-4 h-4 rounded-full bg-white transform transition-transform duration-200 shadow-sm ${useCotCaption ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+
                 {/* LM Temperature */}
                 <EditableSlider
                   label={t('lmTemperature')}
                   value={lmTemperature}
                   min={0}
                   max={2}
-                  step={0.1}
+                  step={0.05}
                   onChange={setLmTemperature}
                   formatDisplay={(val) => val.toFixed(2)}
-                  helpText={t('higherMoreRandom')}
-                  title="Higher temperature = more random word choices."
+                  helpText="Sampling temperature for phase 1 (lyrics/metadata) and phase 2 (audio codes). Lower = more deterministic. Default: 0.85."
                 />
 
                 {/* LM CFG Scale */}
@@ -2463,25 +2464,15 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                   label={t('lmCfgScale')}
                   value={lmCfgScale}
                   min={1}
-                  max={3}
+                  max={5}
                   step={0.1}
                   onChange={setLmCfgScale}
                   formatDisplay={(val) => val.toFixed(1)}
-                  helpText={t('noCfgScale')}
-                  title="How strongly the lyric model follows the prompt."
+                  helpText="CFG scale for the LM. Active in phase 2 and in phase 1 when lyrics are provided. 1.0 disables CFG. Default: 2.0."
                 />
 
-                {/* LM Top-K & Top-P */}
+                {/* LM Top-P & Top-K */}
                 <div className="grid grid-cols-2 gap-3">
-                  <EditableSlider
-                    label={t('topK')}
-                    value={lmTopK}
-                    min={0}
-                    max={100}
-                    step={1}
-                    onChange={setLmTopK}
-                    title="Restricts choices to the K most likely tokens. 0 disables."
-                  />
                   <EditableSlider
                     label={t('topP')}
                     value={lmTopP}
@@ -2490,187 +2481,63 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     step={0.01}
                     onChange={setLmTopP}
                     formatDisplay={(val) => val.toFixed(2)}
-                    title="Samples from the smallest set whose total probability is P."
+                    helpText="Nucleus sampling cutoff. 1.0 disables. Default: 0.9."
+                  />
+                  <EditableSlider
+                    label={t('topK')}
+                    value={lmTopK}
+                    min={0}
+                    max={200}
+                    step={1}
+                    onChange={setLmTopK}
+                    helpText="Top-K sampling. 0 disables hard top-K (top_p still applies). Default: 0."
                   />
                 </div>
 
                 {/* LM Negative Prompt */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Words or ideas to steer the lyric model away from.">{t('lmNegativePrompt')}</label>
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('lmNegativePrompt')}</label>
+                    <span className="relative group/tip inline-flex">
+                      <Info size={12} className="text-zinc-400 cursor-help" />
+                      <span className="pointer-events-none absolute hidden group-hover/tip:block bottom-5 left-0 z-50 w-60 rounded-lg bg-zinc-900 p-2 text-[10px] leading-relaxed text-white shadow-xl">
+                        Negative caption for CFG in phase 2. Steers the LM away from these words/concepts. Empty string falls back to a caption-less unconditional prompt.
+                      </span>
+                    </span>
+                  </div>
                   <textarea
                     value={lmNegativePrompt}
                     onChange={(e) => setLmNegativePrompt(e.target.value)}
                     placeholder={t('thingsToAvoid')}
                     className="w-full h-16 bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg p-2 text-xs text-zinc-900 dark:text-white focus:outline-none resize-none"
                   />
-                  <p className="text-[10px] text-zinc-500">{t('useWhenCfgScaleGreater')}</p>
                 </div>
-              </div>
+              </>
             )}
 
-            <div className="space-y-1">
-              <h4 className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide" title="Controls how much the output follows the input audio.">{t('transform')}</h4>
-              <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('controlSourceAudio')}</p>
+            {/* ── Passthrough ──────────────────────────────────────── */}
+            <div className="flex items-center gap-2 pt-1">
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest whitespace-nowrap">Passthrough</span>
+              <div className="flex-1 border-t border-zinc-200 dark:border-white/10" />
             </div>
+
+            {/* Audio Codes */}
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Advanced: precomputed audio codes for conditioning.">{t('audioCodes')}</label>
+              <div className="flex items-center gap-1.5">
+                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('audioCodes')}</label>
+                <span className="relative group/tip inline-flex">
+                  <Info size={12} className="text-zinc-400 cursor-help" />
+                  <span className="pointer-events-none absolute hidden group-hover/tip:block bottom-5 left-0 z-50 w-64 rounded-lg bg-zinc-900 p-2 text-[10px] leading-relaxed text-white shadow-xl">
+                    Comma-separated FSQ token IDs produced by ace-qwen3. When non-empty, the entire LLM pass is skipped and dit-vae decodes these codes directly (passthrough mode).
+                  </span>
+                </span>
+              </div>
               <textarea
                 value={audioCodes}
                 onChange={(e) => setAudioCodes(e.target.value)}
                 placeholder={t('optionalAudioCodes')}
                 className="w-full h-16 bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg p-2 text-xs text-zinc-900 dark:text-white focus:outline-none resize-none"
               />
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    // Convert source audio to LM codes — requires Gradio lambda (not exposed as API)
-                    // This is a placeholder: Gradio's convert_src_audio_to_codes_wrapper is not a named endpoint
-                    console.log('Convert to Codes: requires source audio upload. Use Gradio UI for this feature.');
-                  }}
-                  disabled={!sourceAudioUrl}
-                  title="Convert source audio to LM codes (requires source audio)"
-                  className="px-2 py-1 rounded text-[10px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  Convert to Codes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    // Transcribe audio codes to metadata — requires Gradio lambda (not exposed as API)
-                    console.log('Transcribe: requires audio codes. Use Gradio UI for this feature.');
-                  }}
-                  disabled={!audioCodes.trim()}
-                  title="Transcribe audio codes to metadata (requires audio codes)"
-                  className="px-2 py-1 rounded text-[10px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  Transcribe
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Additional directives to guide generation.">{t('instruction')}</label>
-              <textarea
-                value={instruction}
-                onChange={(e) => setInstruction(e.target.value)}
-                className="w-full h-16 bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg p-2 text-xs text-zinc-900 dark:text-white focus:outline-none resize-none"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <h4 className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">{t('guidance')}</h4>
-              <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('advancedCfgScheduling')}</p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Fraction of the diffusion process to start applying guidance.">{t('cfgIntervalStart')}</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max="1"
-                  value={cfgIntervalStart}
-                  onChange={(e) => setCfgIntervalStart(Number(e.target.value))}
-                  className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Fraction of the diffusion process to stop applying guidance.">{t('cfgIntervalEnd')}</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max="1"
-                  value={cfgIntervalEnd}
-                  onChange={(e) => setCfgIntervalEnd(Number(e.target.value))}
-                  className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Override the default timestep schedule (advanced).">{t('customTimesteps')}</label>
-              <input
-                type="text"
-                value={customTimesteps}
-                onChange={(e) => setCustomTimesteps(e.target.value)}
-                placeholder={t('timestepsPlaceholder')}
-                className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Scales score-based guidance (advanced).">{t('scoreScale')}</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  max="1"
-                  value={scoreScale}
-                  onChange={(e) => setScoreScale(Number(e.target.value))}
-                  className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Bigger chunks can be faster but use more memory.">{t('lmBatchChunkSize')}</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="32"
-                  step="1"
-                  value={lmBatchChunkSize}
-                  onChange={(e) => setLmBatchChunkSize(Number(e.target.value))}
-                  className="w-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-900 dark:text-white focus:outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <label
-                className="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-400"
-                title="Adaptive Dual Guidance: dynamically adjusts CFG for quality. Base model only; slower."
-              >
-                <input type="checkbox" checked={useAdg} onChange={() => setUseAdg(!useAdg)} />
-                {t('useAdg')}
-              </label>
-              <label className="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Allow the LM to run in larger batches for speed (more VRAM).">
-                <input type="checkbox" checked={allowLmBatch} onChange={() => setAllowLmBatch(!allowLmBatch)} />
-                {t('allowLmBatch')}
-              </label>
-              <label className="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Let the LM reason about metadata like BPM, key, duration.">
-                <input type="checkbox" checked={useCotMetas} onChange={() => setUseCotMetas(!useCotMetas)} />
-                {t('useCotMetas')}
-              </label>
-              <label className="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Let the LM reason about the caption/style text.">
-                <input type="checkbox" checked={useCotCaption} onChange={() => setUseCotCaption(!useCotCaption)} />
-                {t('useCotCaption')}
-              </label>
-              <label className="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Let the LM reason about language selection.">
-                <input type="checkbox" checked={useCotLanguage} onChange={() => setUseCotLanguage(!useCotLanguage)} />
-                {t('useCotLanguage')}
-              </label>
-              <label className="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Auto-generate missing fields when possible.">
-                <input type="checkbox" checked={autogen} onChange={() => setAutogen(!autogen)} />
-                {t('autogen')}
-              </label>
-              <label className="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Include debug info for constrained decoding.">
-                <input type="checkbox" checked={constrainedDecodingDebug} onChange={() => setConstrainedDecodingDebug(!constrainedDecodingDebug)} />
-                {t('constrainedDecodingDebug')}
-              </label>
-              <label className="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Use the formatted caption produced by the AI formatter.">
-                <input type="checkbox" checked={isFormatCaption} onChange={() => setIsFormatCaption(!isFormatCaption)} />
-                {t('formatCaption')}
-              </label>
-              <label className="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Return scorer outputs for diagnostics.">
-                <input type="checkbox" checked={getScores} onChange={() => setGetScores(!getScores)} />
-                {t('getScores')}
-              </label>
-              <label className="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-400" title="Return synced lyric (LRC) output when available.">
-                <input type="checkbox" checked={getLrc} onChange={() => setGetLrc(!getLrc)} />
-                {t('getLrcLyrics')}
-              </label>
             </div>
           </div>
         )}

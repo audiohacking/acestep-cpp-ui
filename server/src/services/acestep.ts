@@ -616,6 +616,7 @@ async function runViaSpawn(
       requestJson.lm_top_p           = params.lmTopP           ?? 0.9;
       requestJson.lm_top_k           = params.lmTopK           ?? 0;
       requestJson.lm_negative_prompt = params.lmNegativePrompt || '';
+      requestJson.use_cot_caption    = params.useCotCaption    ?? true;
     }
 
     const requestPath = path.join(tmpDir, 'request.json');
