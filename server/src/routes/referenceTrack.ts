@@ -25,10 +25,6 @@ const understandRateLimiter = rateLimit({
   message: { error: 'Too many requests — please wait before analysing another track' },
 });
 
-// Apply rate limiting to all understand routes
-router.use('/understand-url', understandRateLimiter);
-router.use('/:id/understand', understandRateLimiter);
-
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
@@ -338,7 +334,7 @@ router.delete('/:id', authMiddleware, async (req: AuthenticatedRequest, res: Res
 });
 
 // Understand a reference track with ace-understand
-router.post('/:id/understand', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:id/understand', understandRateLimiter, authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const result = await pool.query(
       'SELECT user_id, storage_key FROM reference_tracks WHERE id = $1',

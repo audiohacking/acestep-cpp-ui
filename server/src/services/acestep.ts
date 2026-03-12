@@ -685,6 +685,10 @@ async function runViaSpawn(
       ditArgs.push('--lora-scale', String(loraState.scale));
     }
 
+    // Always request WAV output (instead of the default FLAC) so the
+    // file-collection glob (*.wav) stays consistent across all modes.
+    ditArgs.push('--wav');
+
     ditArgs.push(...parseExtraArgs(process.env.DIT_VAE_EXTRA_ARGS));
 
     console.log(`[Job ${jobId}] Running dit-vae:\n  ${ditVaeBin} ${ditArgs.join(' ')}`);
