@@ -2462,28 +2462,28 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                   helpText="CFG scale for the LM. Active in phase 2 and in phase 1 when lyrics are provided. 1.0 disables CFG. Default: 2.0."
                 />
 
-                {/* LM Top-P & Top-K */}
-                <div className="grid grid-cols-2 gap-3">
-                  <EditableSlider
-                    label={t('topP')}
-                    value={lmTopP}
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    onChange={setLmTopP}
-                    formatDisplay={(val) => val.toFixed(2)}
-                    helpText="Nucleus sampling cutoff. 1.0 disables. Default: 0.9."
-                  />
-                  <EditableSlider
-                    label={t('topK')}
-                    value={lmTopK}
-                    min={0}
-                    max={200}
-                    step={1}
-                    onChange={setLmTopK}
-                    helpText="Top-K sampling. 0 disables hard top-K (top_p still applies). Default: 0."
-                  />
-                </div>
+                {/* LM Top-P */}
+                <EditableSlider
+                  label={t('topP')}
+                  value={lmTopP}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  onChange={setLmTopP}
+                  formatDisplay={(val) => val.toFixed(2)}
+                  helpText="Nucleus sampling cutoff. 1.0 disables. Default: 0.9."
+                />
+
+                {/* LM Top-K */}
+                <EditableSlider
+                  label={t('topK')}
+                  value={lmTopK}
+                  min={0}
+                  max={200}
+                  step={1}
+                  onChange={setLmTopK}
+                  helpText="Top-K sampling. 0 disables hard top-K (top_p still applies). Default: 0."
+                />
 
                 {/* LM Negative Prompt */}
                 <div className="space-y-1.5">
