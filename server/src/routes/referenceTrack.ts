@@ -351,6 +351,19 @@ router.post('/:id/understand', understandRateLimiter, authMiddleware, async (req
 
     const audioUrl = `/audio/${result.rows[0].storage_key}`;
     const understood = await runUnderstand(audioUrl);
+
+    // Persist the understand result alongside the track record so it survives
+    // page reloads and can be reused without re-running the (expensive) analysis.
+    // This is best-effort — a save failure doesn't invalidate the result.
+    try {
+      await pool.query(
+        'UPDATE reference_tracks SET understand_metadata = $1 WHERE id = $2',
+        [JSON.stringify(understood), req.params.id]
+      );
+    } catch (saveErr) {
+      console.warn('Understand metadata save failed (non-fatal):', saveErr);
+    }
+
     res.json(understood);
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Failed to understand audio';

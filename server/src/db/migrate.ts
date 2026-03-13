@@ -158,6 +158,32 @@ function migrate(): void {
       throw error;
     }
   }
+
+  // Incremental column additions — ALTER TABLE in SQLite does not support
+  // IF NOT EXISTS, so we catch the error when the column already exists.
+  const columnMigrations: Array<{ sql: string; description: string }> = [
+    {
+      sql: 'ALTER TABLE reference_tracks ADD COLUMN understand_metadata TEXT',
+      description: 'Add understand_metadata column to reference_tracks',
+    },
+  ];
+
+  for (const { sql, description } of columnMigrations) {
+    try {
+      db.exec(sql);
+      console.log(`Migration applied: ${description}`);
+    } catch (err) {
+      const msg = String(err);
+      // better-sqlite3 reports duplicate columns as:
+      //   "table X already has column Y"
+      if (msg.includes('already has column') || msg.includes('duplicate column name') || msg.includes('already exists')) {
+        // Column already present — nothing to do
+      } else {
+        console.error(`Migration failed: ${description}`, err);
+        throw err;
+      }
+    }
+  }
 }
 
 // Run migrations

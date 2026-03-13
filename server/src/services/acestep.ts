@@ -617,6 +617,15 @@ async function runViaSpawn(
       requestJson.lm_top_k           = params.lmTopK           ?? 0;
       requestJson.lm_negative_prompt = params.lmNegativePrompt || '';
       requestJson.use_cot_caption    = params.useCotCaption    ?? true;
+
+      // Reference audio for style-guided text-to-music generation.
+      // When the user selects a reference track, pass it to dit-vae via the
+      // request JSON so the binary can condition the synthesis on that audio.
+      if (params.referenceAudioUrl) {
+        const refAudioPath = resolveAudioPath(params.referenceAudioUrl);
+        requestJson.reference_audio       = refAudioPath;
+        requestJson.audio_cover_strength  = params.audioCoverStrength ?? 1.0;
+      }
     }
 
     const requestPath = path.join(tmpDir, 'request.json');
