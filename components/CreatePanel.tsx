@@ -187,7 +187,10 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const [seed, setSeed] = useState<number>(savedSettings.seed ?? -1);
   const [thinking, setThinking] = useState<boolean>(savedSettings.thinking ?? false); // Default false for GPU compatibility
   const [enhance, setEnhance] = useState<boolean>(savedSettings.enhance ?? false); // AI Enhance: uses LLM to enrich caption & generate metadata
-  const [audioFormat, setAudioFormat] = useState<'mp3' | 'flac'>(savedSettings.audioFormat ?? 'mp3');
+  const [audioFormat, setAudioFormat] = useState<'wav' | 'mp3' | 'flac'>(() => {
+    const saved = savedSettings.audioFormat;
+    return (saved === 'wav' || saved === 'mp3' || saved === 'flac') ? saved : 'wav';
+  });
   const [inferenceSteps, setInferenceSteps] = useState<number>(savedSettings.inferenceSteps ?? 12);
   const [inferMethod, setInferMethod] = useState<'ode' | 'sde'>(savedSettings.inferMethod ?? 'ode');
   const [lmBackend, setLmBackend] = useState<'pt' | 'vllm'>(savedSettings.lmBackend ?? 'pt');
@@ -2360,6 +2363,44 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 />
               </div>
               <p className="text-[10px] text-zinc-500">{randomSeed ? t('randomSeedRecommended') : t('fixedSeedReproducible')}</p>
+            </div>
+
+            {/* ── Output Format ──────────────────────────────────── */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Music2 size={14} className="text-zinc-500" />
+                <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Output Format</span>
+                <span className="relative group/tip inline-flex">
+                  <Info size={12} className="text-zinc-400 cursor-help" />
+                  <span className="pointer-events-none absolute hidden group-hover/tip:block bottom-5 left-0 z-50 w-56 rounded-lg bg-zinc-900 px-3 py-2 text-[10px] text-zinc-200 shadow-xl border border-white/10">
+                    WAV (default): lossless, uses --wav flag. MP3: lossy compressed, requires ffmpeg on the server. FLAC: lossless compressed.
+                  </span>
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                {(['wav', 'mp3', 'flac'] as const).map((fmt) => (
+                  <button
+                    key={fmt}
+                    onClick={() => setAudioFormat(fmt)}
+                    className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all ${
+                      audioFormat === fmt
+                        ? fmt === 'wav'
+                          ? 'bg-sky-600 text-white shadow-md'
+                          : fmt === 'mp3'
+                            ? 'bg-orange-500 text-white shadow-md'
+                            : 'bg-violet-600 text-white shadow-md'
+                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                    }`}
+                  >
+                    {fmt}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-zinc-500">
+                {audioFormat === 'wav' ? 'Lossless WAV — largest file, best quality, no encoding' :
+                 audioFormat === 'mp3' ? 'Compressed MP3 — smaller file, requires ffmpeg on server' :
+                 'Lossless FLAC — smaller than WAV, no encoding loss'}
+              </p>
             </div>
 
             {/* ── DiT flow matching (dit-vae) ──────────────────────── */}

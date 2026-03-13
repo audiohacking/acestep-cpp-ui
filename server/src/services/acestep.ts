@@ -60,7 +60,7 @@ export interface GenerationParams {
   seed?: number;
   thinking?: boolean;
   enhance?: boolean;
-  audioFormat?: 'mp3' | 'flac';
+  audioFormat?: 'wav' | 'mp3' | 'flac';
   inferMethod?: 'ode' | 'sde';
   shift?: number;
   lmTemperature?: number;
@@ -729,9 +729,12 @@ async function runViaSpawn(
       ditArgs.push('--lora-scale', String(loraState.scale));
     }
 
-    // Always request WAV output (instead of the default FLAC) so the
-    // file-collection glob (*.wav) stays consistent across all modes.
-    ditArgs.push('--wav');
+    // Request WAV output when format is wav (default) or mp3 (we'll convert after);
+    // for flac, skip --wav so the binary outputs its native FLAC.
+    const wantFlac = (params.audioFormat === 'flac');
+    if (!wantFlac) {
+      ditArgs.push('--wav');
+    }
 
     ditArgs.push(...parseExtraArgs(process.env.DIT_VAE_EXTRA_ARGS));
 
@@ -740,15 +743,17 @@ async function runViaSpawn(
     job.logs.push(`\n--- Running dit-vae ---\n$ ${ditCmd}`);
     await runBinary(ditVaeBin, ditArgs, 'dit-vae', undefined, makeDitVaeProgressHandler(job));
 
-    // ── Collect generated WAV files ─────────────────────────────────────────
-    // dit-vae places output WAVs alongside each enriched JSON:
-    //   request0.json → request00.wav, request01.wav, …
-    //   request1.json → request10.wav, request11.wav, …
+    // ── Collect generated audio files ──────────────────────────────────────
+    // dit-vae places output files alongside each enriched JSON:
+    //   With --wav:  request0.json → request00.wav, request01.wav, …
+    //   Without --wav: request0.json → request00.flac, request01.flac, …
     const { copyFile, rm } = await import('fs/promises');
+    const wantMp3 = (params.audioFormat === 'mp3');
+    const srcExt  = wantFlac ? 'flac' : 'wav';
     let rawAudioPaths: string[] = [];
     try {
       rawAudioPaths = readdirSync(tmpDir)
-        .filter(f => /^request\d+\.wav$/.test(f))
+        .filter(f => new RegExp(`^request\\d+\\.${srcExt}$`).test(f))
         .sort()
         .map(f => path.join(tmpDir, f));
     } catch { /* ignore */ }
@@ -757,11 +762,30 @@ async function runViaSpawn(
       throw new Error('dit-vae produced no audio files');
     }
 
-    // Move WAVs to AUDIO_DIR with a stable, job-scoped name
+    // Determine the final file extension; attempt MP3 conversion via ffmpeg when requested
+    let finalExt: string = srcExt;
+    if (wantMp3) {
+      try {
+        const { execFileSync } = await import('child_process');
+        execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' });
+        finalExt = 'mp3';
+      } catch {
+        job.logs.push('\n[WARN] ffmpeg not found – storing output as WAV instead of MP3');
+        finalExt = 'wav';
+      }
+    }
+
+    // Copy/convert files to AUDIO_DIR with a stable, job-scoped name
     const audioPaths: string[] = [];
     for (let i = 0; i < rawAudioPaths.length; i++) {
-      const dest = path.join(AUDIO_DIR, `${jobId}_${i}.wav`);
-      await copyFile(rawAudioPaths[i], dest);
+      const dest = path.join(AUDIO_DIR, `${jobId}_${i}.${finalExt}`);
+      if (finalExt === 'mp3') {
+        // Convert WAV → MP3 via ffmpeg
+        const { execFileSync } = await import('child_process');
+        execFileSync('ffmpeg', ['-y', '-i', rawAudioPaths[i], '-q:a', '2', dest], { stdio: 'pipe' });
+      } else {
+        await copyFile(rawAudioPaths[i], dest);
+      }
       audioPaths.push(dest);
     }
 

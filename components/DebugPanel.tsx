@@ -12,24 +12,34 @@ interface JobSummary {
 
 const POLL_INTERVAL_MS = 1500;
 
+// Module-level rolling log that survives component remounts (persists for the tab session)
+const rollingLog: { jobId: string; startTime: number; status: string; lines: string[] }[] = [];
+const offsetByJob = new Map<string, number>();
+
 export const DebugPanel: React.FC = () => {
   const { token } = useAuth();
 
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string>('');
-  const [lines, setLines] = useState<string[]>([]);
-  const [lineOffset, setLineOffset] = useState(0);
+  // Combined display lines (all jobs, newest at bottom)
+  const [displayLines, setDisplayLines] = useState<string[]>(() =>
+    rollingLog.flatMap(entry => [
+      `=== Job ${entry.jobId.slice(-8)} [${new Date(entry.startTime).toLocaleTimeString()}] — ${entry.status.toUpperCase()} ===`,
+      ...entry.lines,
+    ])
+  );
   const [autoScroll, setAutoScroll] = useState(true);
-  const [isPolling, setIsPolling] = useState(false);
 
   const consoleRef = useRef<HTMLPreElement>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const offsetRef = useRef(0);
   const selectedJobRef = useRef('');
 
-  // Keep refs in sync
-  useEffect(() => { offsetRef.current = lineOffset; }, [lineOffset]);
+  // Keep ref in sync
   useEffect(() => { selectedJobRef.current = selectedJobId; }, [selectedJobId]);
+
+  const appendToDisplay = useCallback((newLines: string[]) => {
+    setDisplayLines(prev => [...prev, ...newLines]);
+  }, []);
 
   const fetchJobList = useCallback(async () => {
     if (!token) return;
@@ -41,6 +51,19 @@ export const DebugPanel: React.FC = () => {
         const data = await res.json();
         const jobList: JobSummary[] = data.jobs || [];
         setJobs(jobList);
+
+        // For any newly discovered job, ensure it has an entry in rollingLog
+        for (const j of jobList) {
+          if (!rollingLog.find(e => e.jobId === j.jobId)) {
+            rollingLog.push({ jobId: j.jobId, startTime: j.startTime, status: j.status, lines: [] });
+            offsetByJob.set(j.jobId, 0);
+          } else {
+            // Update status
+            const entry = rollingLog.find(e => e.jobId === j.jobId)!;
+            entry.status = j.status;
+          }
+        }
+
         // Auto-select the most recent job if none is selected
         if (!selectedJobRef.current && jobList.length > 0) {
           setSelectedJobId(jobList[0].jobId);
@@ -49,58 +72,69 @@ export const DebugPanel: React.FC = () => {
     } catch { /* ignore */ }
   }, [token]);
 
-  const fetchLogs = useCallback(async () => {
-    const jobId = selectedJobRef.current;
-    if (!token || !jobId) return;
-    try {
-      const res = await fetch(`/api/generate/logs/${jobId}?after=${offsetRef.current}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.lines && data.lines.length > 0) {
-          setLines(prev => [...prev, ...data.lines]);
-          const newOffset = offsetRef.current + data.lines.length;
-          offsetRef.current = newOffset;
-          setLineOffset(newOffset);
+  const fetchLogsForAllJobs = useCallback(async () => {
+    if (!token) return;
+
+    for (const entry of rollingLog) {
+      const currentOffset = offsetByJob.get(entry.jobId) ?? 0;
+      try {
+        const res = await fetch(`/api/generate/logs/${entry.jobId}?after=${currentOffset}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.lines && data.lines.length > 0) {
+            const isNew = currentOffset === 0 && entry.lines.length === 0;
+            const newLines: string[] = isNew
+              ? [`=== Job ${entry.jobId.slice(-8)} [${new Date(entry.startTime).toLocaleTimeString()}] — ${entry.status.toUpperCase()} ===`, ...data.lines]
+              : data.lines;
+            entry.lines.push(...data.lines);
+            offsetByJob.set(entry.jobId, currentOffset + data.lines.length);
+            appendToDisplay(newLines);
+          }
         }
-      }
-    } catch { /* ignore */ }
-  }, [token]);
+      } catch { /* ignore */ }
+    }
+  }, [token, appendToDisplay]);
 
   // Poll loop
   const schedulePoll = useCallback(() => {
     if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     pollTimerRef.current = setTimeout(async () => {
       await fetchJobList();
-      await fetchLogs();
+      await fetchLogsForAllJobs();
       schedulePoll();
     }, POLL_INTERVAL_MS);
-  }, [fetchJobList, fetchLogs]);
+  }, [fetchJobList, fetchLogsForAllJobs]);
 
   useEffect(() => {
-    setIsPolling(true);
-    void fetchJobList();
-    void fetchLogs();
+    void fetchJobList().then(() => fetchLogsForAllJobs());
     schedulePoll();
     return () => {
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     };
-  }, [fetchJobList, fetchLogs, schedulePoll]);
+  }, [fetchJobList, fetchLogsForAllJobs, schedulePoll]);
 
-  // Reset log view when job changes
-  useEffect(() => {
-    setLines([]);
-    setLineOffset(0);
-    offsetRef.current = 0;
-  }, [selectedJobId]);
-
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom when new lines arrive
   useEffect(() => {
     if (autoScroll && consoleRef.current) {
       consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
     }
-  }, [lines, autoScroll]);
+  }, [displayLines, autoScroll]);
+
+  // Scroll to the section for the selected job
+  useEffect(() => {
+    if (!selectedJobId || !consoleRef.current) return;
+    const pre = consoleRef.current;
+    // Walk through child spans to find the matching line
+    const spans = pre.querySelectorAll('span[data-job]');
+    for (const span of Array.from(spans)) {
+      if ((span as HTMLElement).dataset.job === selectedJobId) {
+        (span as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'start' });
+        break;
+      }
+    }
+  }, [selectedJobId]);
 
   const handleScroll = () => {
     if (!consoleRef.current) return;
@@ -110,14 +144,15 @@ export const DebugPanel: React.FC = () => {
   };
 
   const handleClear = () => {
-    setLines([]);
-    setLineOffset(0);
-    offsetRef.current = 0;
+    setDisplayLines([]);
+    // Clear the module-level log too so it doesn't resurface on remount
+    rollingLog.length = 0;
+    offsetByJob.clear();
   };
 
   const handleRefresh = async () => {
     await fetchJobList();
-    await fetchLogs();
+    await fetchLogsForAllJobs();
   };
 
   const scrollToBottom = () => {
@@ -127,10 +162,7 @@ export const DebugPanel: React.FC = () => {
     setAutoScroll(true);
   };
 
-  const formatTime = (ts: number) => {
-    const d = new Date(ts);
-    return d.toLocaleTimeString();
-  };
+  const formatTime = (ts: number) => new Date(ts).toLocaleTimeString();
 
   const statusColor = (s: string) => {
     if (s === 'succeeded') return 'text-green-400';
@@ -151,13 +183,22 @@ export const DebugPanel: React.FC = () => {
     return 'text-green-300';
   };
 
+  // Determine which job each display line belongs to (for scroll-to-job)
+  const getJobIdForLine = (line: string): string | null => {
+    const m = line.match(/^=== Job ([0-9a-f]{8}) \[/);
+    if (!m) return null;
+    const suffix = m[1];
+    return jobs.find(j => j.jobId.endsWith(suffix))?.jobId ?? null;
+  };
+
   return (
     <div className="flex flex-col h-full bg-zinc-950 text-green-300 font-mono">
       {/* Toolbar */}
       <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-900 border-b border-zinc-800 flex-shrink-0">
         <span className="text-xs font-bold text-zinc-300 uppercase tracking-widest">Debug Console</span>
+        <span className="text-[9px] text-zinc-500 italic">rolling log — all jobs</span>
 
-        {/* Job selector */}
+        {/* Job jump selector */}
         <div className="relative flex-1 max-w-xs">
           <select
             value={selectedJobId}
@@ -182,9 +223,7 @@ export const DebugPanel: React.FC = () => {
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          {isPolling && (
-            <span className="text-[9px] text-emerald-500 animate-pulse">● LIVE</span>
-          )}
+          <span className="text-[9px] text-emerald-500 animate-pulse">● LIVE</span>
           <button
             onClick={handleRefresh}
             title="Refresh now"
@@ -194,7 +233,7 @@ export const DebugPanel: React.FC = () => {
           </button>
           <button
             onClick={handleClear}
-            title="Clear view (does not stop logging)"
+            title="Clear all logs"
             className="p-1.5 rounded hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors"
           >
             <Trash2 size={13} />
@@ -209,23 +248,30 @@ export const DebugPanel: React.FC = () => {
         className="flex-1 overflow-y-auto px-4 py-3 text-[11px] leading-[1.6] whitespace-pre-wrap break-all custom-scrollbar"
         style={{ fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace" }}
       >
-        {lines.length === 0 ? (
+        {displayLines.length === 0 ? (
           <span className="text-zinc-600">
-            {selectedJobId
-              ? 'Waiting for output…'
-              : jobs.length === 0
-                ? 'No generation jobs found. Start a generation to see debug output here.'
-                : 'Select a job above to view its logs.'}
+            {jobs.length === 0
+              ? 'No generation jobs found. Start a generation to see debug output here.'
+              : 'Waiting for output…'}
           </span>
         ) : (
-          lines.map((line, i) => (
-            <span key={i} className={`block ${colorize(line)}`}>{line}</span>
-          ))
+          displayLines.map((line, i) => {
+            const jobId = getJobIdForLine(line);
+            return (
+              <span
+                key={i}
+                data-job={jobId ?? undefined}
+                className={`block ${colorize(line)}`}
+              >
+                {line}
+              </span>
+            );
+          })
         )}
       </pre>
 
       {/* Footer: scroll-to-bottom hint */}
-      {!autoScroll && lines.length > 0 && (
+      {!autoScroll && displayLines.length > 0 && (
         <button
           onClick={scrollToBottom}
           className="absolute bottom-16 right-6 flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-[10px] font-medium px-3 py-1.5 rounded-full shadow-lg transition-colors"

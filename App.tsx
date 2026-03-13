@@ -741,6 +741,9 @@ function AppContent() {
           cleanupJob(jobId, tempId);
           console.error(`Job ${jobId} failed:`, status.error);
           showToast(`${t('generationFailed')}: ${status.error || 'Unknown error'}`, 'error');
+          // Auto-open debug view so the user can inspect the logs
+          setCurrentView('debug');
+          window.history.pushState({}, '', '/debug');
         }
       } catch (pollError) {
         console.error(`Polling error for job ${jobId}:`, pollError);
