@@ -9,9 +9,10 @@
  */
 
 import { spawn } from 'child_process';
-import { writeFile, mkdir, readFile } from 'fs/promises';
+import { writeFile, mkdir, readFile, mkdtemp, rm } from 'fs/promises';
 import { execFileSync } from 'child_process';
 import { existsSync, readdirSync } from 'fs';
+import { tmpdir } from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { config } from '../config/index.js';
@@ -41,7 +42,7 @@ function getAudioDuration(filePath: string): number {
 // ---------------------------------------------------------------------------
 
 export interface GenerationParams {
-  customMode: boolean;
+  customMode?: boolean; // kept for backward compatibility; ignored in unified mode
   songDescription?: string;
   lyrics: string;
   style: string;
@@ -59,7 +60,7 @@ export interface GenerationParams {
   seed?: number;
   thinking?: boolean;
   enhance?: boolean;
-  audioFormat?: 'mp3' | 'flac';
+  audioFormat?: 'wav' | 'mp3';
   inferMethod?: 'ode' | 'sde';
   shift?: number;
   lmTemperature?: number;
@@ -82,10 +83,20 @@ export interface GenerationParams {
   useAdg?: boolean;
   cfgIntervalStart?: number;
   cfgIntervalEnd?: number;
+  customTimesteps?: string;
   useCotMetas?: boolean;
   useCotCaption?: boolean;
   useCotLanguage?: boolean;
   autogen?: boolean;
+  constrainedDecodingDebug?: boolean;
+  allowLmBatch?: boolean;
+  getScores?: boolean;
+  getLrc?: boolean;
+  scoreScale?: number;
+  lmBatchChunkSize?: number;
+  trackName?: string;
+  completeTrackClasses?: string[];
+  isFormatCaption?: boolean;
   ditModel?: string;
 }
 
@@ -118,6 +129,8 @@ interface ActiveJob {
   queuePosition?: number;
   progress?: number;
   stage?: string;
+  /** All raw lines emitted by ace-qwen3 / dit-vae (stdout + stderr), in order. */
+  logs: string[];
 }
 
 const activeJobs = new Map<string, ActiveJob>();
@@ -308,8 +321,20 @@ function runBinary(
     let stdout = '';
     let stderr = '';
     let lineBuf = '';
+    let stdoutLineBuf = '';
 
-    proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+    proc.stdout.on('data', (chunk: Buffer) => {
+      const text = chunk.toString();
+      stdout += text;
+      // Stream stdout lines to onLine as well so they appear in the debug log
+      stdoutLineBuf += text;
+      const lines = stdoutLineBuf.split('\n');
+      stdoutLineBuf = lines.pop() ?? '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed && onLine) onLine(`[stdout] ${trimmed}`);
+      }
+    });
     proc.stderr.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       stderr += text;
@@ -324,8 +349,10 @@ function runBinary(
 
     proc.on('close', (code) => {
       // Flush any partial last line that didn't end with a newline
+      if (stdoutLineBuf.trim() && onLine) onLine(`[stdout] ${stdoutLineBuf.trim()}`);
       if (lineBuf.trim() && onLine) onLine(lineBuf.trim());
       lineBuf = '';
+      stdoutLineBuf = '';
 
       if (code === 0) {
         resolve({ stdout, stderr });
@@ -382,6 +409,9 @@ function makeLmProgressHandler(job: ActiveJob): (line: string) => void {
   const PHASE1_STEP_CEIL = 400;
 
   return (line: string) => {
+    // Always capture the raw line for the debug log
+    job.logs.push(line);
+
     // Phase1 LM decode: "[Phase1] step 100, 1 active, 19.0 tok/s"
     const p1 = line.match(/^\[Phase1\] step (\d+),.*?([\d.]+) tok\/s/);
     if (p1) {
@@ -426,6 +456,9 @@ function makeDitVaeProgressHandler(job: ActiveJob): (line: string) => void {
   let ditTotalSteps = 8;
 
   return (line: string) => {
+    // Always capture the raw line for the debug log
+    job.logs.push(line);
+
     // DiT starting — capture step count: "[DiT] Starting: T=3470, S=1735, …, steps=8, …"
     const ditStart = line.match(/^\[DiT\] Starting:.*?steps=(\d+)/);
     if (ditStart) {
@@ -483,18 +516,18 @@ async function runViaSpawn(
   const taskType    = params.taskType || 'text2music';
   const isCover     = taskType === 'cover' || taskType === 'audio2audio';
   const isRepaint   = taskType === 'repaint';
+  const isLego      = taskType === 'lego';
   // Passthrough: taskType explicitly set, or audio codes provided without
   // a source audio file (legacy callers that omit the taskType field).
   const isPassthru  = taskType === 'passthrough' || Boolean(params.audioCodes && !params.sourceAudioUrl);
   // LLM (ace-qwen3) is only needed for plain text-to-music generation.
-  // Cover, repaint, and passthrough all skip it.
-  const skipLm      = isCover || isRepaint || isPassthru;
+  // Cover, repaint, lego, and passthrough all skip it.
+  const skipLm      = isCover || isRepaint || isLego || isPassthru;
 
   // ── Debug: log what the UI/API client requested ──────────────────────────
   console.log(
     `[Job ${jobId}] Request received:` +
     `\n  mode          = ${taskType}` +
-    `\n  customMode    = ${params.customMode}` +
     `\n  ditModel      = ${params.ditModel || '(default)'}` +
     `\n  sourceAudio   = ${params.sourceAudioUrl || 'none'}` +
     `\n  repaintRegion = [${params.repaintingStart ?? 'start'}, ${params.repaintingEnd ?? 'end'}]` +
@@ -513,7 +546,8 @@ async function runViaSpawn(
     // (cover / repaint / passthrough).  Only include the fields each binary
     // actually understands so the format stays clean and predictable.
     const caption = params.style || 'pop music';
-    const prompt  = params.customMode ? caption : (params.songDescription || caption);
+    // Use song description when provided (user's natural-language intent), falling back to style/caption
+    const prompt  = params.songDescription || caption;
     // Instrumental: pass the special "[Instrumental]" lyrics marker so the LLM
     // skips lyrics generation (as documented in the acestep.cpp README).
     const lyrics  = params.instrumental ? '[Instrumental]' : (params.lyrics || '');
@@ -535,7 +569,7 @@ async function runViaSpawn(
     if (params.timeSignature)                   requestJson.timesignature = params.timeSignature;
 
     if (skipLm) {
-      // ── Cover / repaint / passthrough: ace-qwen3 is skipped ─────────────
+      // ── Cover / repaint / lego / passthrough: ace-qwen3 is skipped ──────
       // Add only the mode-specific fields that dit-vae cares about.
       if (isPassthru) {
         if (!params.audioCodes) {
@@ -554,6 +588,25 @@ async function runViaSpawn(
         // Note: sourceAudioUrl is guaranteed here — validated in processGeneration.
         requestJson.repainting_start = params.repaintingStart ?? -1;
         requestJson.repainting_end   = params.repaintingEnd   ?? -1;
+      } else if (isLego) {
+        // Lego: generate a new instrument track layered over an existing backing track.
+        // Requires the base model (acestep-v15-base) and --src-audio.
+        // The "lego" field holds the track name (e.g. "guitar", "drums").
+        if (!params.trackName) {
+          throw new Error("task_type='lego' requires a track name (e.g. 'guitar')");
+        }
+        requestJson.lego = params.trackName;
+        // Which existing tracks are "complete" and should not be overwritten.
+        if (params.completeTrackClasses && params.completeTrackClasses.length > 0) {
+          requestJson.complete_track_classes = params.completeTrackClasses;
+        }
+        // Lego has strict parameter requirements per the spec — always enforce them
+        // regardless of what the frontend sent, so the binary never rejects the request.
+        requestJson.inference_steps = 50;
+        requestJson.guidance_scale  = 7.0;
+        // shift=1.0 is a hard requirement for lego (the spec example always uses 1.0;
+        // using the normal default of 3.0 causes dit-vae to reject the request).
+        requestJson.shift = 1.0;
       }
     } else {
       // ── Text-to-music: include LM parameters for ace-qwen3 ──────────────
@@ -563,12 +616,15 @@ async function runViaSpawn(
       requestJson.lm_top_p           = params.lmTopP           ?? 0.9;
       requestJson.lm_top_k           = params.lmTopK           ?? 0;
       requestJson.lm_negative_prompt = params.lmNegativePrompt || '';
+      requestJson.use_cot_caption    = params.useCotCaption    ?? true;
     }
 
     const requestPath = path.join(tmpDir, 'request.json');
     await writeFile(requestPath, JSON.stringify(requestJson, null, 2));
     console.log(`[Job ${jobId}] Request JSON written to ${requestPath}:`);
     console.log(JSON.stringify(requestJson, null, 2));
+    job.logs.push(`=== Job ${jobId} started — mode: ${taskType} ===`);
+    job.logs.push(`Request JSON: ${JSON.stringify(requestJson, null, 2)}`);
 
     // ── Step 1: ace-qwen3 — LLM (lyrics + audio codes) ────────────────────
     // Skipped when:
@@ -590,7 +646,9 @@ async function runViaSpawn(
       if (batchSize > 1) lmArgs.push('--batch', String(batchSize));
       lmArgs.push(...parseExtraArgs(process.env.ACE_QWEN3_EXTRA_ARGS));
 
-      console.log(`[Job ${jobId}] Running ace-qwen3:\n  ${lmBin} ${lmArgs.join(' ')}`);
+      const lmCmd = `${lmBin} ${lmArgs.join(' ')}`;
+      console.log(`[Job ${jobId}] Running ace-qwen3:\n  ${lmCmd}`);
+      job.logs.push(`\n--- Running ace-qwen3 ---\n$ ${lmCmd}`);
       await runBinary(lmBin, lmArgs, 'ace-qwen3', undefined, makeLmProgressHandler(job));
 
       // Collect enriched JSON files produced by ace-qwen3:
@@ -618,8 +676,24 @@ async function runViaSpawn(
 
     const ditVaeBin        = config.acestep.ditVaeBin!;
     const textEncoderModel = config.acestep.textEncoderModel;
-    const ditModel         = resolveParamDitModel(params.ditModel);
     const vaeModel         = config.acestep.vaeModel;
+
+    // Lego mode mandates the base DiT model — no other variant will work.
+    // Override whatever the frontend sent and fail early with a clear message
+    // if the base model has not been downloaded yet.
+    let ditModel: string;
+    if (isLego) {
+      const baseModel = config.acestep.baseModel;
+      if (!baseModel) {
+        throw new Error(
+          'Lego mode requires the base DiT model (acestep-v15-base) ' +
+          '— download it via the Model Manager first'
+        );
+      }
+      ditModel = baseModel;
+    } else {
+      ditModel = resolveParamDitModel(params.ditModel);
+    }
 
     if (!textEncoderModel) throw new Error('Text-encoder model not found — run models.sh first');
     if (!ditModel)         throw new Error('DiT model not found — run models.sh first');
@@ -655,20 +729,30 @@ async function runViaSpawn(
       ditArgs.push('--lora-scale', String(loraState.scale));
     }
 
+    // WAV format: pass --wav so the binary outputs WAV; MP3 (default): no flag,
+    // the binary outputs MP3 natively (upstream acestep-cpp has native MP3 support).
+    const wantWav = (params.audioFormat === 'wav');
+    if (wantWav) {
+      ditArgs.push('--wav');
+    }
+
     ditArgs.push(...parseExtraArgs(process.env.DIT_VAE_EXTRA_ARGS));
 
-    console.log(`[Job ${jobId}] Running dit-vae:\n  ${ditVaeBin} ${ditArgs.join(' ')}`);
+    const ditCmd = `${ditVaeBin} ${ditArgs.join(' ')}`;
+    console.log(`[Job ${jobId}] Running dit-vae:\n  ${ditCmd}`);
+    job.logs.push(`\n--- Running dit-vae ---\n$ ${ditCmd}`);
     await runBinary(ditVaeBin, ditArgs, 'dit-vae', undefined, makeDitVaeProgressHandler(job));
 
-    // ── Collect generated WAV files ─────────────────────────────────────────
-    // dit-vae places output WAVs alongside each enriched JSON:
-    //   request0.json → request00.wav, request01.wav, …
-    //   request1.json → request10.wav, request11.wav, …
+    // ── Collect generated audio files ──────────────────────────────────────
+    // dit-vae places output files alongside each enriched JSON:
+    //   With --wav:  request0.json → request00.wav, request01.wav, …
+    //   Without --wav: request0.json → request00.mp3, request01.mp3, …
     const { copyFile, rm } = await import('fs/promises');
+    const finalExt = wantWav ? 'wav' : 'mp3';
     let rawAudioPaths: string[] = [];
     try {
       rawAudioPaths = readdirSync(tmpDir)
-        .filter(f => /^request\d+\.wav$/.test(f))
+        .filter(f => new RegExp(`^request\\d+\\.${finalExt}$`).test(f))
         .sort()
         .map(f => path.join(tmpDir, f));
     } catch { /* ignore */ }
@@ -677,10 +761,10 @@ async function runViaSpawn(
       throw new Error('dit-vae produced no audio files');
     }
 
-    // Move WAVs to AUDIO_DIR with a stable, job-scoped name
+    // Copy files to AUDIO_DIR with a stable, job-scoped name
     const audioPaths: string[] = [];
     for (let i = 0; i < rawAudioPaths.length; i++) {
-      const dest = path.join(AUDIO_DIR, `${jobId}_${i}.wav`);
+      const dest = path.join(AUDIO_DIR, `${jobId}_${i}.${finalExt}`);
       await copyFile(rawAudioPaths[i], dest);
       audioPaths.push(dest);
     }
@@ -706,12 +790,18 @@ async function runViaSpawn(
       status: 'succeeded',
     };
     job.rawResponse = enrichedMeta;
+    job.logs.push(`\n=== Job ${jobId} completed successfully — ${audioUrls.length} file(s): ${audioUrls.join(', ')} ===`);
     console.log(`[Job ${jobId}] Completed successfully with ${audioUrls.length} audio file(s): ${audioUrls.join(', ')}`);
 
     // Clean up tmp directory
     await rm(tmpDir, { recursive: true, force: true }).catch(() => { /* best-effort */ });
 
   } catch (err) {
+    // Append error to the debug log before re-throwing
+    if (activeJobs.has(jobId)) {
+      const j = activeJobs.get(jobId)!;
+      j.logs.push(`\n=== Job ${jobId} FAILED: ${(err as Error).message} ===`);
+    }
     // Best-effort cleanup on failure
     try {
       const { rm } = await import('fs/promises');
@@ -727,7 +817,7 @@ async function runViaSpawn(
 
 function buildHttpRequest(params: GenerationParams): Record<string, unknown> {
   const caption = params.style || 'pop music';
-  const prompt = params.customMode ? caption : (params.songDescription || caption);
+  const prompt = params.songDescription || caption;
   const lyrics = params.instrumental ? '' : (params.lyrics || '');
   const isThinking = params.thinking ?? false;
   const isEnhance  = params.enhance  ?? false;
@@ -918,6 +1008,7 @@ export async function generateMusicViaAPI(params: GenerationParams): Promise<{ j
     startTime: Date.now(),
     status: 'queued',
     queuePosition: jobQueue.length + 1,
+    logs: [],
   };
 
   activeJobs.set(jobId, job);
@@ -945,7 +1036,6 @@ async function processGeneration(
   console.log(
     `[Job ${jobId}] Starting generation (${mode} mode):` +
     `\n  taskType    = ${params.taskType || 'text2music'}` +
-    `\n  customMode  = ${params.customMode}` +
     `\n  ditModel    = ${params.ditModel || '(default)'}` +
     `\n  sourceAudio = ${params.sourceAudioUrl || 'none'}` +
     `\n  audioCodes  = ${params.audioCodes ? '[provided]' : 'none'}`
@@ -962,6 +1052,13 @@ async function processGeneration(
   if (params.taskType === 'repaint' && !params.sourceAudioUrl) {
     job.status = 'failed';
     job.error  = "task_type='repaint' requires a source audio (--src-audio)";
+    console.error(`[Job ${jobId}] Validation failed: ${job.error}`);
+    return;
+  }
+
+  if (params.taskType === 'lego' && !params.sourceAudioUrl) {
+    job.status = 'failed';
+    job.error  = "task_type='lego' requires a source audio (--src-audio)";
     console.error(`[Job ${jobId}] Validation failed: ${job.error}`);
     return;
   }
@@ -1012,6 +1109,113 @@ export async function getJobStatus(jobId: string): Promise<JobStatus> {
 
 export function getJobRawResponse(jobId: string): unknown | null {
   return activeJobs.get(jobId)?.rawResponse ?? null;
+}
+
+/**
+ * Returns the captured log lines for a job (all raw output from ace-qwen3 + dit-vae).
+ * Optionally accepts an `after` offset to return only new lines since the last poll.
+ */
+export function getJobLogs(jobId: string, after = 0): { lines: string[]; total: number; status: string } | null {
+  const job = activeJobs.get(jobId);
+  if (!job) return null;
+  return {
+    lines: job.logs.slice(after),
+    total: job.logs.length,
+    status: job.status,
+  };
+}
+
+/**
+ * Returns a summary of all in-memory jobs (most recent first), for the debug log list.
+ */
+export function listActiveJobs(): Array<{ jobId: string; status: string; startTime: number; stage?: string; logCount: number }> {
+  const result: Array<{ jobId: string; status: string; startTime: number; stage?: string; logCount: number }> = [];
+  for (const [jobId, job] of activeJobs) {
+    result.push({ jobId, status: job.status, startTime: job.startTime, stage: job.stage, logCount: job.logs.length });
+  }
+  return result.sort((a, b) => b.startTime - a.startTime);
+}
+
+// ---------------------------------------------------------------------------
+// Ace Understand — reverse pipeline: audio → metadata + lyrics
+// ---------------------------------------------------------------------------
+
+export interface UnderstandResult {
+  caption?: string;
+  lyrics?: string;
+  bpm?: number;
+  duration?: number;
+  keyscale?: string;
+  timesignature?: string;
+  vocal_language?: string;
+  seed?: number;
+  inference_steps?: number;
+  guidance_scale?: number;
+  shift?: number;
+  audio_cover_strength?: number;
+  repainting_start?: number;
+  repainting_end?: number;
+  lm_temperature?: number;
+  lm_cfg_scale?: number;
+  lm_top_p?: number;
+  lm_top_k?: number;
+  lm_negative_prompt?: string;
+  use_cot_caption?: boolean;
+  audio_codes?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Run ace-understand on a source audio file and return the parsed result JSON.
+ *
+ * The binary performs a reverse pipeline: VAE-encodes the audio, FSQ-tokenises
+ * the latent, then uses the LM to generate metadata (caption, lyrics, bpm, etc.)
+ * — the same fields that ace-qwen3 would fill for generation.
+ */
+export async function runUnderstand(audioUrl: string): Promise<UnderstandResult> {
+  const understandBin = config.acestep.understandBin;
+  if (!understandBin) {
+    throw new Error('ace-understand binary not found — rebuild acestep.cpp or set ACE_UNDERSTAND_BIN');
+  }
+
+  const lmModel         = config.acestep.lmModel;
+  const ditModel        = config.acestep.ditModel;
+  const vaeModel        = config.acestep.vaeModel;
+
+  if (!lmModel)   throw new Error('LM model not found — run models.sh first');
+  if (!ditModel)  throw new Error('DiT model not found — run models.sh first');
+  if (!vaeModel)  throw new Error('VAE model not found — run models.sh first');
+
+  const srcAudioPath = resolveAudioPath(audioUrl);
+  if (!existsSync(srcAudioPath)) {
+    throw new Error(`Audio file not found: ${srcAudioPath}`);
+  }
+
+  // Write output JSON to a temp file so we can parse it reliably.
+  const tmpDir = await mkdtemp(path.join(tmpdir(), 'ace-understand-'));
+  const outJsonPath = path.join(tmpDir, 'understand.json');
+
+  try {
+    const args: string[] = [
+      '--src-audio', srcAudioPath,
+      '--dit',       ditModel,
+      '--vae',       vaeModel,
+      '--model',     lmModel,
+      '-o',          outJsonPath,
+    ];
+
+    console.log(`[understand] Running ace-understand:\n  ${understandBin} ${args.join(' ')}`);
+
+    await runBinary(understandBin, args, 'ace-understand');
+
+    // Read and parse the output JSON
+    const raw = await readFile(outJsonPath, 'utf-8');
+    const result: UnderstandResult = JSON.parse(raw);
+    console.log('[understand] Result:', JSON.stringify(result, null, 2));
+    return result;
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => { /* best-effort */ });
+  }
 }
 
 export async function discoverEndpoints(): Promise<unknown> {

@@ -23,6 +23,7 @@ import { SearchPage } from './components/SearchPage';
 import { NewsPage } from './components/NewsPage';
 import { ModelManager } from './components/ModelManager';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { DebugPanel } from './components/DebugPanel';
 
 
 function AppContent() {
@@ -215,7 +216,8 @@ function AppContent() {
   const handleBackFromProfile = () => {
     setViewingUsername(null);
     setCurrentView('create');
-    window.history.pushState({}, '', '/');
+    const wid = new URLSearchParams(window.location.search).get('wid');
+    window.history.pushState({}, '', wid ? `/?wid=${wid}` : '/');
   };
 
   // Navigate to Song Handler
@@ -229,7 +231,8 @@ function AppContent() {
   const handleBackFromSong = () => {
     setViewingSongId(null);
     setCurrentView('create');
-    window.history.pushState({}, '', '/');
+    const wid = new URLSearchParams(window.location.search).get('wid');
+    window.history.pushState({}, '', wid ? `/?wid=${wid}` : '/');
   };
 
   // Theme Effect
@@ -290,6 +293,8 @@ function AppContent() {
         setCurrentView('news');
       } else if (path === '/models') {
         setCurrentView('models');
+      } else if (path === '/debug') {
+        setCurrentView('debug');
       }
     };
 
@@ -736,6 +741,9 @@ function AppContent() {
           cleanupJob(jobId, tempId);
           console.error(`Job ${jobId} failed:`, status.error);
           showToast(`${t('generationFailed')}: ${status.error || 'Unknown error'}`, 'error');
+          // Auto-open debug view so the user can inspect the logs
+          setCurrentView('debug');
+          window.history.pushState({}, '', '/debug');
         }
       } catch (pollError) {
         console.error(`Polling error for job ${jobId}:`, pollError);
@@ -1305,6 +1313,13 @@ function AppContent() {
       case 'news':
         return <NewsPage />;
 
+      case 'debug':
+        return (
+          <div className="flex-1 relative overflow-hidden">
+            <DebugPanel />
+          </div>
+        );
+
       case 'create':
       default:
         return (
@@ -1402,7 +1417,8 @@ function AppContent() {
             setCurrentView(v);
             if (v === 'create') {
               setMobileShowList(false);
-              window.history.pushState({}, '', '/');
+              const wid = new URLSearchParams(window.location.search).get('wid');
+              window.history.pushState({}, '', wid ? `/?wid=${wid}` : '/');
             } else if (v === 'library') {
               window.history.pushState({}, '', '/library');
             } else if (v === 'models') {
@@ -1411,6 +1427,8 @@ function AppContent() {
               window.history.pushState({}, '', '/search');
             } else if (v === 'news') {
               window.history.pushState({}, '', '/news');
+            } else if (v === 'debug') {
+              window.history.pushState({}, '', '/debug');
             }
             if (isMobile) setShowLeftSidebar(false);
           }}

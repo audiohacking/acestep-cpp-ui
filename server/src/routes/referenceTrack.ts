@@ -4,15 +4,26 @@ import path from 'path';
 import os from 'os';
 import { promises as fs } from 'fs';
 import { fileURLToPath } from 'url';
+import rateLimit from 'express-rate-limit';
 import { pool } from '../db/pool.js';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth.js';
 import { getStorageProvider } from '../services/storage/factory.js';
 import { spawn } from 'child_process';
+import { runUnderstand } from '../services/acestep.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const AUDIO_DIR = path.join(__dirname, '../../public/audio');
+
+// Per-IP rate limiter for CPU-intensive understand operations (max 6 requests per minute)
+const understandRateLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests — please wait before analysing another track' },
+});
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -319,6 +330,50 @@ router.delete('/:id', authMiddleware, async (req: AuthenticatedRequest, res: Res
   } catch (error) {
     console.error('Delete reference track error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Understand a reference track with ace-understand
+router.post('/:id/understand', understandRateLimiter, authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await pool.query(
+      'SELECT user_id, storage_key FROM reference_tracks WHERE id = $1',
+      [req.params.id]
+    );
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Track not found' });
+      return;
+    }
+    if (result.rows[0].user_id !== req.user!.id) {
+      res.status(403).json({ error: 'Access denied' });
+      return;
+    }
+
+    const audioUrl = `/audio/${result.rows[0].storage_key}`;
+    const understood = await runUnderstand(audioUrl);
+    res.json(understood);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Failed to understand audio';
+    console.error('Understand reference track error:', error);
+    res.status(500).json({ error: msg });
+  }
+});
+
+// Understand audio by URL (for source/generated audio without a reference track DB entry)
+router.post('/understand-url', understandRateLimiter, authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  const { audioUrl } = req.body as { audioUrl?: string };
+  if (!audioUrl || typeof audioUrl !== 'string') {
+    res.status(400).json({ error: 'audioUrl is required' });
+    return;
+  }
+
+  try {
+    const understood = await runUnderstand(audioUrl);
+    res.json(understood);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Failed to understand audio';
+    console.error('Understand URL error:', error);
+    res.status(500).json({ error: msg });
   }
 });
 

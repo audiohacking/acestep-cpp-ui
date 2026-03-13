@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import { spawn } from 'child_process';
+import rateLimit from 'express-rate-limit';
 import { pool } from '../db/pool.js';
 import { generateUUID } from '../db/sqlite.js';
 import { config } from '../config/index.js';
@@ -14,15 +15,42 @@ import {
   checkSpaceHealth,
   cleanupJob,
   getJobRawResponse,
-  downloadAudioToBuffer,
+  getJobLogs,
+  listActiveJobs,
 } from '../services/acestep.js';
 import { getStorageProvider } from '../services/storage/factory.js';
+
+// Rate limiter for the debug log polling endpoints (read-only, lightweight)
+const logRateLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 120, // 2 req/s sustained — enough for 1.5s poll intervals
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many log requests — please slow down polling' },
+});
+
+// Rate limiter for the job status polling endpoint (performs FS operations on first completion)
+const statusRateLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 120, // 2 req/s sustained — enough for 2s frontend poll intervals
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many status requests — please slow down polling' },
+});
 
 const router = Router();
 
 // Auto-generate a song title from lyrics or style when none is provided
-function autoTitle(params: { title?: string; lyrics?: string; instrumental?: boolean; style?: string; songDescription?: string }): string {
+function autoTitle(params: { title?: string; lyrics?: string; instrumental?: boolean; style?: string; songDescription?: string; taskType?: string; trackName?: string; sourceAudioTitle?: string }): string {
   if (params.title?.trim()) return params.title.trim();
+
+  // For lego mode: combine source audio name + instrument to make a descriptive title
+  if (params.taskType === 'lego' && params.trackName) {
+    const base = params.sourceAudioTitle
+      ? params.sourceAudioTitle.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim()
+      : 'track';
+    return `${base} — ${params.trackName}`;
+  }
 
   // Try first meaningful lyric line (skip section markers like [verse], [chorus])
   if (!params.instrumental && params.lyrics) {
@@ -78,8 +106,8 @@ const audioUpload = multer({
 });
 
 interface GenerateBody {
-  // Mode
-  customMode: boolean;
+  // Mode (kept for backward compatibility; unified mode always uses full-featured panel)
+  customMode?: boolean;
 
   // Simple Mode
   songDescription?: string;
@@ -106,7 +134,7 @@ interface GenerateBody {
   randomSeed?: boolean;
   seed?: number;
   thinking?: boolean;
-  audioFormat?: 'mp3' | 'flac';
+  audioFormat?: 'mp3' | 'wav';
   inferMethod?: 'ode' | 'sde';
   shift?: number;
 
@@ -265,17 +293,11 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
       ditModel,
     } = req.body as GenerateBody;
 
-    if (!customMode && !songDescription) {
-      res.status(400).json({ error: 'Song description required for simple mode' });
-      return;
-    }
-
-    // In custom mode, at least one content field is required — unless the request
-    // is for cover, audio2audio, or repaint mode and a source audio is provided
-    // (the source audio itself is the primary input; style/lyrics are optional).
-    const requiresSourceAudio = taskType === 'cover' || taskType === 'audio2audio' || taskType === 'repaint';
-    if (customMode && !style && !lyrics && !referenceAudioUrl && !(requiresSourceAudio && sourceAudioUrl)) {
-      res.status(400).json({ error: 'Style, lyrics, or reference audio required for custom mode' });
+    // At least one content field is required — unless the request is for cover/repaint/lego
+    // and a source audio is provided (the source audio itself is the primary input).
+    const requiresSourceAudio = taskType === 'cover' || taskType === 'audio2audio' || taskType === 'repaint' || taskType === 'lego';
+    if (!songDescription && !style && !lyrics && !referenceAudioUrl && !(requiresSourceAudio && sourceAudioUrl)) {
+      res.status(400).json({ error: 'Please provide a description, style, lyrics, or audio' });
       return;
     }
 
@@ -283,7 +305,6 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
     console.log(
       `[API] POST /generate:` +
       `\n  taskType    = ${taskType || 'text2music'}` +
-      `\n  customMode  = ${customMode}` +
       `\n  ditModel    = ${ditModel || '(default)'}` +
       `\n  sourceAudio = ${sourceAudioUrl || 'none'}` +
       `\n  repaint     = [${repaintingStart ?? 'start'}, ${repaintingEnd ?? 'end'}]` +
@@ -292,7 +313,7 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
     );
 
     const params = {
-      customMode,
+      customMode: true,
       songDescription,
       lyrics,
       style,
@@ -377,7 +398,7 @@ router.post('/', authMiddleware, async (req: AuthenticatedRequest, res: Response
   }
 });
 
-router.get('/status/:jobId', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/status/:jobId', statusRateLimiter, authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const jobResult = await pool.query(
       `SELECT id, user_id, acestep_task_id, status, params, result, error, created_at
@@ -440,10 +461,18 @@ router.get('/status/:jobId', authMiddleware, async (req: AuthenticatedRequest, r
               const songId = generateUUID();
 
               try {
-                const { buffer } = await downloadAudioToBuffer(audioUrl);
-                const ext = audioUrl.includes('.flac') ? '.flac' : '.mp3';
+                let ext = '.mp3';
+                if (audioUrl.endsWith('.flac')) ext = '.flac';
+                else if (audioUrl.endsWith('.wav')) ext = '.wav';
                 const storageKey = `${req.user!.id}/${songId}${ext}`;
-                await storage.upload(storageKey, buffer, `audio/${ext.slice(1)}`);
+                // Move the intermediate job file directly to its library location to avoid storing
+                // a duplicate copy of the (potentially large) audio file on disk.
+                const { rename, mkdir } = await import('fs/promises');
+                const srcPath = path.join(config.storage.audioDir, audioUrl.slice('/audio/'.length));
+                const dstDir  = path.join(config.storage.audioDir, req.user!.id);
+                const dstPath = path.join(dstDir, `${songId}${ext}`);
+                await mkdir(dstDir, { recursive: true });
+                await rename(srcPath, dstPath);
                 const storedPath = storage.getPublicUrl(storageKey);
 
                 await pool.query(
@@ -705,6 +734,35 @@ router.get('/debug/:taskId', authMiddleware, async (req: AuthenticatedRequest, r
       return;
     }
     res.json({ rawResponse });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// ── Debug log endpoints ───────────────────────────────────────────────────────
+
+/** List all in-memory jobs (for the debug panel job selector). */
+router.get('/logs', logRateLimiter, authMiddleware, async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    res.json({ jobs: listActiveJobs() });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * Stream log lines for a specific job.
+ * Query param `after` (integer) returns only lines after that index for efficient polling.
+ */
+router.get('/logs/:jobId', logRateLimiter, authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const after = parseInt(req.query.after as string || '0', 10);
+    const result = getJobLogs(req.params.jobId, isNaN(after) ? 0 : after);
+    if (!result) {
+      res.status(404).json({ error: 'Job not found' });
+      return;
+    }
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

@@ -51,6 +51,16 @@ function resolveDitVaeBin(): string {
   return '';
 }
 
+/** Resolves the ace-understand binary path (reverse pipeline: audio → metadata). */
+function resolveUnderstandBin(): string {
+  if (process.env.ACE_UNDERSTAND_BIN) return resolveFromRoot(process.env.ACE_UNDERSTAND_BIN);
+  for (const name of ['ace-understand', 'ace-understand.exe']) {
+    const p = path.join(APP_ROOT, 'bin', name);
+    if (existsSync(p)) return p;
+  }
+  return '';
+}
+
 // ── Model resolution ─────────────────────────────────────────────────────────
 
 /** Resolves the models directory. */
@@ -86,6 +96,40 @@ function resolveDitModel(modelsDir: string): string {
     if (turbo) return path.join(modelsDir, turbo);
     const sft   = files.find(f => f.startsWith('acestep-v15'));
     if (sft)   return path.join(modelsDir, sft);
+  } catch { /* ignore read errors */ }
+
+  return '';
+}
+
+/**
+ * Resolves the base DiT model (acestep-v15-base-*.gguf).
+ * The base model is mandatory for lego mode — the turbo/sft variants will not work.
+ * Override via ACESTEP_BASE_MODEL in .env.
+ */
+function resolveBaseModel(modelsDir: string): string {
+  if (process.env.ACESTEP_BASE_MODEL) {
+    const p = resolveFromRoot(process.env.ACESTEP_BASE_MODEL);
+    if (existsSync(p)) return p;
+    console.warn(`[config] ACESTEP_BASE_MODEL path not found: ${p} — falling back to auto-detection`);
+  }
+  if (!existsSync(modelsDir)) return '';
+
+  const preference = [
+    'acestep-v15-base-Q8_0.gguf',
+    'acestep-v15-base-Q6_K.gguf',
+    'acestep-v15-base-Q5_K_M.gguf',
+    'acestep-v15-base-Q4_K_M.gguf',
+    'acestep-v15-base-BF16.gguf',
+  ];
+  for (const name of preference) {
+    const p = path.join(modelsDir, name);
+    if (existsSync(p)) return p;
+  }
+
+  try {
+    const files = readdirSync(modelsDir).filter(f => f.endsWith('.gguf') && !f.endsWith('.part'));
+    const base = files.find(f => f.startsWith('acestep-v15-base'));
+    if (base) return path.join(modelsDir, base);
   } catch { /* ignore read errors */ }
 
   return '';
@@ -167,7 +211,9 @@ function resolveVaeModel(modelsDir: string): string {
 const modelsDir          = resolveModelsDir();
 const resolvedLmBin      = resolveLmBin();
 const resolvedDitVaeBin  = resolveDitVaeBin();
+const resolvedUnderstandBin = resolveUnderstandBin();
 const resolvedDitModel   = resolveDitModel(modelsDir);
+const resolvedBaseModel  = resolveBaseModel(modelsDir);
 const resolvedLmModel    = resolveLmModel(modelsDir);
 const resolvedTextEncoderModel = resolveTextEncoderModel(modelsDir);
 const resolvedVaeModel   = resolveVaeModel(modelsDir);
@@ -177,12 +223,16 @@ if (resolvedLmBin)             console.log(`[config] ace-qwen3:      ${resolvedL
 else                           console.log('[config] ace-qwen3:      not found (set ACE_QWEN3_BIN)');
 if (resolvedDitVaeBin)         console.log(`[config] dit-vae:        ${resolvedDitVaeBin}`);
 else                           console.log('[config] dit-vae:        not found (set DIT_VAE_BIN)');
+if (resolvedUnderstandBin)     console.log(`[config] ace-understand: ${resolvedUnderstandBin}`);
+else                           console.log('[config] ace-understand: not found (set ACE_UNDERSTAND_BIN)');
 if (resolvedLmModel)           console.log(`[config] LM model:       ${resolvedLmModel}`);
 else                           console.log('[config] LM model:       none (run models.sh)');
 if (resolvedTextEncoderModel)  console.log(`[config] text encoder:   ${resolvedTextEncoderModel}`);
 else                           console.log('[config] text encoder:   none (run models.sh)');
 if (resolvedDitModel)          console.log(`[config] DiT model:      ${resolvedDitModel}`);
 else                           console.log('[config] DiT model:      none (run models.sh)');
+if (resolvedBaseModel)         console.log(`[config] base DiT model: ${resolvedBaseModel}`);
+else                           console.log('[config] base DiT model: none (download acestep-v15-base for lego mode)');
 if (resolvedVaeModel)          console.log(`[config] VAE model:      ${resolvedVaeModel}`);
 else                           console.log('[config] VAE model:      none (run models.sh)');
 
@@ -203,9 +253,12 @@ export const config = {
     // Two-binary spawn mode (acestep.cpp native pipeline)
     lmBin:             resolvedLmBin,
     ditVaeBin:         resolvedDitVaeBin,
+    understandBin:     resolvedUnderstandBin,
     lmModel:           resolvedLmModel,
     textEncoderModel:  resolvedTextEncoderModel,
     ditModel:          resolvedDitModel,
+    // Base DiT model — required for lego mode (turbo/sft will not work)
+    baseModel:         resolvedBaseModel,
     vaeModel:          resolvedVaeModel,
 
     // HTTP fallback mode

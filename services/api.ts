@@ -266,7 +266,7 @@ export interface GenerationParams {
   randomSeed?: boolean;
   seed?: number;
   thinking?: boolean;
-  audioFormat?: 'mp3' | 'flac';
+  audioFormat?: 'wav' | 'mp3';
   inferMethod?: 'ode' | 'sde';
   shift?: number;
 
@@ -418,6 +418,12 @@ export const generateApi = {
     scale: number;
     path: string;
   }> => api('/api/lora/status', { token }),
+
+  understandReferenceTrack: (trackId: string, token: string): Promise<Record<string, unknown>> =>
+    api(`/api/reference-tracks/${trackId}/understand`, { method: 'POST', token }),
+
+  understandAudioUrl: (audioUrl: string, token: string): Promise<Record<string, unknown>> =>
+    api('/api/reference-tracks/understand-url', { method: 'POST', body: { audioUrl }, token }),
 };
 
 // Users API

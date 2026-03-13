@@ -79,7 +79,7 @@ export interface GenerationParams {
   seed: number;
   thinking: boolean;
   enhance?: boolean;
-  audioFormat: 'mp3' | 'flac';
+  audioFormat: 'wav' | 'mp3';
   inferMethod: 'ode' | 'sde';
   shift: number;
 
@@ -152,4 +152,4 @@ export interface UserProfile {
 }
 
 // Simplified views for ACE-Step UI
-export type View = 'create' | 'library' | 'models' | 'profile' | 'song' | 'playlist' | 'search' | 'news';
+export type View = 'create' | 'library' | 'models' | 'profile' | 'song' | 'playlist' | 'search' | 'news' | 'debug';

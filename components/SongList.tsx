@@ -641,6 +641,16 @@ const SongItem: React.FC<SongItemProps> = ({
                         <span className="inline-flex items-center justify-center text-[9px] font-bold text-white bg-gradient-to-r from-pink-500 to-purple-500 px-1.5 py-0.5 rounded-sm shadow-sm" title={`DiT model: ${song.ditModel || 'undefined'}`}>
                             {getModelDisplayName(song.ditModel)}
                         </span>
+                        {song.audioUrl && !song.isGenerating && (() => {
+                            const ext = song.audioUrl.split('.').pop()?.toLowerCase();
+                            const fmtLabel = ext === 'mp3' ? 'MP3' : ext === 'wav' ? 'WAV' : null;
+                            const fmtClass = ext === 'mp3' ? 'from-orange-500 to-amber-500' : 'from-sky-500 to-blue-600';
+                            return fmtLabel ? (
+                                <span className={`inline-flex items-center justify-center text-[9px] font-bold text-white bg-gradient-to-r ${fmtClass} px-1.5 py-0.5 rounded-sm shadow-sm`} title={`Audio format: ${fmtLabel}`}>
+                                    {fmtLabel}
+                                </span>
+                            ) : null;
+                        })()}
                         {song.isPublic === false && (
                             <Lock size={12} className="text-zinc-400 dark:text-zinc-500" />
                         )}
