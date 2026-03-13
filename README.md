@@ -36,7 +36,6 @@
 | **git** | For cloning acestep.cpp and its submodules |
 | **C++ compiler** | GCC 11+ / Clang 13+ / MSVC 2022+ |
 | **GPU (optional)** | NVIDIA (CUDA), AMD (ROCm/HIP), Vulkan-capable, or Apple Silicon (Metal) |
-| **FFmpeg** | For audio processing |
 
 > **No Python required.** The C++ engine runs standalone — just build it once and it stays ready.
 
