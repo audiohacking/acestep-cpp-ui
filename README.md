@@ -1,9 +1,6 @@
-<p align="center">
+<h1 align="center">
   <img width="250" alt="image" src="https://github.com/user-attachments/assets/0b34f9e0-9323-4032-96d1-5837aaca18af" />
-</p>
-
-<h1 align="center">acestep-cpp-ui</h1>
-
+</h1>
 <p align="center">
   <img width="800" height="431" alt="image" src="https://github.com/user-attachments/assets/89825300-2cef-4914-9ba7-46234ffe4084" />
 </p>
