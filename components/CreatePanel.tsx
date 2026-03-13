@@ -1440,6 +1440,138 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
             onDragOver={handleDragOver}
             className="bg-white dark:bg-[#1a1a1f] rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden"
           >
+            {/* Title Input */}
+            <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden">
+              <div className="px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 border-b border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-white/5">
+                {t('title')}
+              </div>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={t('nameSong')}
+                className="w-full bg-transparent p-3 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none"
+              />
+            </div>
+
+            {/* Style Input */}
+            <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden transition-colors group focus-within:border-zinc-400 dark:focus-within:border-white/20">
+              <div className="flex items-center justify-between px-3 py-2.5 bg-zinc-50 dark:bg-white/5 border-b border-zinc-100 dark:border-white/5">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">{t('styleOfMusic')}</span>
+                    <button
+                      onClick={() => setEnhance(!enhance)}
+                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer ${enhance ? 'bg-violet-100 dark:bg-violet-500/20 text-violet-600 dark:text-violet-400' : 'text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300'}`}
+                      title={t('enhanceTooltip')}
+                    >
+                      <Sparkles size={9} />
+                      <span>{enhance ? 'ON' : 'OFF'}</span>
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5">{t('genreMoodInstruments')}</p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    className="p-1.5 hover:bg-zinc-200 dark:hover:bg-white/10 rounded transition-colors text-zinc-500 hover:text-black dark:hover:text-white"
+                    title={t('refreshGenres')}
+                    onClick={refreshMusicTags}
+                  >
+                    <Dices size={14} />
+                  </button>
+                  <button
+                    className="p-1.5 hover:bg-zinc-200 dark:hover:bg-white/10 rounded text-zinc-500 hover:text-black dark:hover:text-white transition-colors"
+                    onClick={() => setStyle('')}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                  <button
+                    className={`p-1.5 hover:bg-zinc-200 dark:hover:bg-white/10 rounded transition-colors ${isFormattingStyle ? 'text-pink-500' : 'text-zinc-500 hover:text-black dark:hover:text-white'}`}
+                    title="AI Format - Enhance style & auto-fill parameters"
+                    onClick={() => handleFormat('style')}
+                    disabled={isFormattingStyle || !style.trim()}
+                  >
+                    {isFormattingStyle ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  </button>
+                </div>
+              </div>
+              <textarea
+                value={style}
+                onChange={(e) => setStyle(e.target.value)}
+                placeholder={t('stylePlaceholder')}
+                className="w-full h-20 bg-transparent p-3 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none resize-none"
+              />
+              <div className="px-3 pb-3 space-y-3">
+                {/* Quick Tags */}
+                <div className="flex flex-wrap gap-2">
+                  {musicTags.map(tag => (
+                    <button
+                      key={tag}
+                      onClick={() => setStyle(prev => prev ? `${prev}, ${tag}` : tag)}
+                      className="text-[10px] font-medium bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white px-2.5 py-1 rounded-full transition-colors border border-zinc-200 dark:border-white/5"
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Lyrics Input */}
+            <div
+              ref={lyricsRef}
+              className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden transition-colors group focus-within:border-zinc-400 dark:focus-within:border-white/20 relative flex flex-col"
+              style={{ height: 'auto' }}
+            >
+              <div className="flex items-center justify-between px-3 py-2.5 bg-zinc-50 dark:bg-white/5 border-b border-zinc-100 dark:border-white/5 flex-shrink-0">
+                <div>
+                  <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">{t('lyrics')}</span>
+                  <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5">{t('leaveLyricsEmpty')}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setInstrumental(!instrumental)}
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${
+                      instrumental
+                        ? 'bg-pink-600 text-white border-pink-500'
+                        : 'bg-white dark:bg-suno-card border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/10'
+                    }`}
+                  >
+                    {instrumental ? t('instrumental') : t('vocal')}
+                  </button>
+                  <button
+                    className={`p-1.5 hover:bg-zinc-200 dark:hover:bg-white/10 rounded transition-colors ${isFormattingLyrics ? 'text-pink-500' : 'text-zinc-500 hover:text-black dark:hover:text-white'}`}
+                    title="AI Format - Enhance style & auto-fill parameters"
+                    onClick={() => handleFormat('lyrics')}
+                    disabled={isFormattingLyrics || !style.trim()}
+                  >
+                    {isFormattingLyrics ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  </button>
+                  <button
+                    className="p-1.5 hover:bg-zinc-200 dark:hover:bg-white/10 rounded text-zinc-500 hover:text-black dark:hover:text-white transition-colors"
+                    onClick={() => setLyrics('')}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+              <textarea
+                disabled={instrumental}
+                value={lyrics}
+                onChange={(e) => setLyrics(e.target.value)}
+                placeholder={instrumental ? t('instrumental') + ' mode' : t('lyricsPlaceholder')}
+                className={`w-full bg-transparent p-3 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none resize-none font-mono leading-relaxed ${instrumental ? 'opacity-30 cursor-not-allowed' : ''}`}
+                style={{ height: `${lyricsHeight}px` }}
+              />
+              {/* Resize Handle */}
+              <div
+                onMouseDown={startResizing}
+                className="h-3 w-full cursor-ns-resize flex items-center justify-center hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors absolute bottom-0 left-0 z-10"
+              >
+                <div className="w-8 h-1 rounded-full bg-zinc-300 dark:bg-zinc-700"></div>
+              </div>
+            </div>
+
             {/* Header with Audio label and tabs */}
             <div className="px-3 py-2.5 border-b border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-white/[0.02]">
               <div className="flex items-center justify-between">
@@ -1901,185 +2033,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 </div>
               </div>
             </div>
-
-            {/* Lyrics Input */}
-            <div
-              ref={lyricsRef}
-              className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden transition-colors group focus-within:border-zinc-400 dark:focus-within:border-white/20 relative flex flex-col"
-              style={{ height: 'auto' }}
-            >
-              <div className="flex items-center justify-between px-3 py-2.5 bg-zinc-50 dark:bg-white/5 border-b border-zinc-100 dark:border-white/5 flex-shrink-0">
-                <div>
-                  <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">{t('lyrics')}</span>
-                  <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5">{t('leaveLyricsEmpty')}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setInstrumental(!instrumental)}
-                    className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${
-                      instrumental
-                        ? 'bg-pink-600 text-white border-pink-500'
-                        : 'bg-white dark:bg-suno-card border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/10'
-                    }`}
-                  >
-                    {instrumental ? t('instrumental') : t('vocal')}
-                  </button>
-                  <button
-                    className={`p-1.5 hover:bg-zinc-200 dark:hover:bg-white/10 rounded transition-colors ${isFormattingLyrics ? 'text-pink-500' : 'text-zinc-500 hover:text-black dark:hover:text-white'}`}
-                    title="AI Format - Enhance style & auto-fill parameters"
-                    onClick={() => handleFormat('lyrics')}
-                    disabled={isFormattingLyrics || !style.trim()}
-                  >
-                    {isFormattingLyrics ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                  </button>
-                  <button
-                    className="p-1.5 hover:bg-zinc-200 dark:hover:bg-white/10 rounded text-zinc-500 hover:text-black dark:hover:text-white transition-colors"
-                    onClick={() => setLyrics('')}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </div>
-              <textarea
-                disabled={instrumental}
-                value={lyrics}
-                onChange={(e) => setLyrics(e.target.value)}
-                placeholder={instrumental ? t('instrumental') + ' mode' : t('lyricsPlaceholder')}
-                className={`w-full bg-transparent p-3 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none resize-none font-mono leading-relaxed ${instrumental ? 'opacity-30 cursor-not-allowed' : ''}`}
-                style={{ height: `${lyricsHeight}px` }}
-              />
-              {/* Resize Handle */}
-              <div
-                onMouseDown={startResizing}
-                className="h-3 w-full cursor-ns-resize flex items-center justify-center hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors absolute bottom-0 left-0 z-10"
-              >
-                <div className="w-8 h-1 rounded-full bg-zinc-300 dark:bg-zinc-700"></div>
-              </div>
-            </div>
-
-            {/* Style Input */}
-            <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden transition-colors group focus-within:border-zinc-400 dark:focus-within:border-white/20">
-              <div className="flex items-center justify-between px-3 py-2.5 bg-zinc-50 dark:bg-white/5 border-b border-zinc-100 dark:border-white/5">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">{t('styleOfMusic')}</span>
-                    <button
-                      onClick={() => setEnhance(!enhance)}
-                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer ${enhance ? 'bg-violet-100 dark:bg-violet-500/20 text-violet-600 dark:text-violet-400' : 'text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300'}`}
-                      title={t('enhanceTooltip')}
-                    >
-                      <Sparkles size={9} />
-                      <span>{enhance ? 'ON' : 'OFF'}</span>
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5">{t('genreMoodInstruments')}</p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    className="p-1.5 hover:bg-zinc-200 dark:hover:bg-white/10 rounded transition-colors text-zinc-500 hover:text-black dark:hover:text-white"
-                    title={t('refreshGenres')}
-                    onClick={refreshMusicTags}
-                  >
-                    <Dices size={14} />
-                  </button>
-                  <button
-                    className="p-1.5 hover:bg-zinc-200 dark:hover:bg-white/10 rounded text-zinc-500 hover:text-black dark:hover:text-white transition-colors"
-                    onClick={() => setStyle('')}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                  <button
-                    className={`p-1.5 hover:bg-zinc-200 dark:hover:bg-white/10 rounded transition-colors ${isFormattingStyle ? 'text-pink-500' : 'text-zinc-500 hover:text-black dark:hover:text-white'}`}
-                    title="AI Format - Enhance style & auto-fill parameters"
-                    onClick={() => handleFormat('style')}
-                    disabled={isFormattingStyle || !style.trim()}
-                  >
-                    {isFormattingStyle ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                  </button>
-                </div>
-              </div>
-              <textarea
-                value={style}
-                onChange={(e) => setStyle(e.target.value)}
-                placeholder={t('stylePlaceholder')}
-                className="w-full h-20 bg-transparent p-3 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none resize-none"
-              />
-              <div className="px-3 pb-3 space-y-3">
-                {/* Quick Tags */}
-                <div className="flex flex-wrap gap-2">
-                  {musicTags.map(tag => (
-                    <button
-                      key={tag}
-                      onClick={() => setStyle(prev => prev ? `${prev}, ${tag}` : tag)}
-                      className="text-[10px] font-medium bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white px-2.5 py-1 rounded-full transition-colors border border-zinc-200 dark:border-white/5"
-                    >
-                      {tag}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Title Input */}
-            <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 overflow-hidden">
-              <div className="px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 border-b border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-white/5">
-                {t('title')}
-              </div>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder={t('nameSong')}
-                className="w-full bg-transparent p-3 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none"
-              />
-            </div>
           </div>
-
-        {/* COMMON SETTINGS */}
-        <div className="space-y-4">
-
-
-          {/* Vocal Language (Custom mode) */}
-          {!instrumental && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide px-1">
-                  {t('vocalLanguage')}
-                </label>
-                <select
-                  value={vocalLanguage}
-                  onChange={(e) => setVocalLanguage(e.target.value)}
-                  className="w-full bg-white dark:bg-suno-card border border-zinc-200 dark:border-white/5 rounded-xl px-3 py-2 text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800 [&>option]:text-zinc-900 [&>option]:dark:text-white"
-                >
-                  {VOCAL_LANGUAGE_KEYS.map(lang => (
-                    <option key={lang.value} value={lang.value}>{t(lang.key)}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide px-1">
-                  {t('vocalGender')}
-                </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setVocalGender(vocalGender === 'male' ? '' : 'male')}
-                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${vocalGender === 'male' ? 'bg-pink-600 text-white border-pink-600' : 'border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-white/20'}`}
-                  >
-                    {t('male')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setVocalGender(vocalGender === 'female' ? '' : 'female')}
-                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${vocalGender === 'female' ? 'bg-pink-600 text-white border-pink-600' : 'border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-white/20'}`}
-                  >
-                    {t('female')}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
 
         {/* LORA CONTROL PANEL */}
         <>
@@ -2170,6 +2124,52 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               </div>
             )}
         </>
+
+        {/* COMMON SETTINGS */}
+        <div className="space-y-4">
+
+
+          {/* Vocal Language (Custom mode) */}
+          {!instrumental && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide px-1">
+                  {t('vocalLanguage')}
+                </label>
+                <select
+                  value={vocalLanguage}
+                  onChange={(e) => setVocalLanguage(e.target.value)}
+                  className="w-full bg-white dark:bg-suno-card border border-zinc-200 dark:border-white/5 rounded-xl px-3 py-2 text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-pink-500 dark:focus:border-pink-500 transition-colors cursor-pointer [&>option]:bg-white [&>option]:dark:bg-zinc-800 [&>option]:text-zinc-900 [&>option]:dark:text-white"
+                >
+                  {VOCAL_LANGUAGE_KEYS.map(lang => (
+                    <option key={lang.value} value={lang.value}>{t(lang.key)}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide px-1">
+                  {t('vocalGender')}
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setVocalGender(vocalGender === 'male' ? '' : 'male')}
+                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${vocalGender === 'male' ? 'bg-pink-600 text-white border-pink-600' : 'border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-white/20'}`}
+                  >
+                    {t('male')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVocalGender(vocalGender === 'female' ? '' : 'female')}
+                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${vocalGender === 'female' ? 'bg-pink-600 text-white border-pink-600' : 'border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-white/20'}`}
+                  >
+                    {t('female')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* MUSIC PARAMETERS */}
         <div className="bg-white dark:bg-suno-card rounded-xl border border-zinc-200 dark:border-white/5 p-4 space-y-4">
