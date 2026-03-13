@@ -216,7 +216,8 @@ function AppContent() {
   const handleBackFromProfile = () => {
     setViewingUsername(null);
     setCurrentView('create');
-    window.history.pushState({}, '', '/');
+    const wid = new URLSearchParams(window.location.search).get('wid');
+    window.history.pushState({}, '', wid ? `/?wid=${wid}` : '/');
   };
 
   // Navigate to Song Handler
@@ -230,7 +231,8 @@ function AppContent() {
   const handleBackFromSong = () => {
     setViewingSongId(null);
     setCurrentView('create');
-    window.history.pushState({}, '', '/');
+    const wid = new URLSearchParams(window.location.search).get('wid');
+    window.history.pushState({}, '', wid ? `/?wid=${wid}` : '/');
   };
 
   // Theme Effect
@@ -1412,7 +1414,8 @@ function AppContent() {
             setCurrentView(v);
             if (v === 'create') {
               setMobileShowList(false);
-              window.history.pushState({}, '', '/');
+              const wid = new URLSearchParams(window.location.search).get('wid');
+              window.history.pushState({}, '', wid ? `/?wid=${wid}` : '/');
             } else if (v === 'library') {
               window.history.pushState({}, '', '/library');
             } else if (v === 'models') {
