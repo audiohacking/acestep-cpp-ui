@@ -1,16 +1,10 @@
 [
   {
-    "id": "v1-gradio-migration",
-    "date": "2025-02-09",
-    "title": "Switched to Gradio API Backend",
-    "body": "We migrated the backend from REST API to Gradio API for direct communication with ACE-Step. This version is experimental — if you encounter any bugs, please report them or open a PR on our GitHub repo.",
+    "id": "v1-cpp-migration",
+    "date": "2026-03-13",
+    "title": "Switched to Acestep.cpp Backend",
+    "body": "This forks builds on top of the acestep.cpp project for native AceStep inference using zero Python/Gradio/etc",
     "tags": ["backend", "experimental"]
   },
-  {
-    "id": "v1-training-experimental",
-    "date": "2025-02-09",
-    "title": "LoRA Training (Experimental)",
-    "body": "The training feature is now available but still experimental. You may encounter bugs during dataset building, preprocessing, or training. Bug reports and PRs are welcome!",
-    "tags": ["training", "experimental"]
-  }
+
 ]
