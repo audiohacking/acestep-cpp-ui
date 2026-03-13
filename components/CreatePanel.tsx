@@ -2389,10 +2389,9 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               helpText="Flow-matching schedule shift — controls the timestep distribution (shift = s·t / (1+(s−1)·t)). Turbo preset: 3.0. SFT/lego preset: 1.0. Values near 1.0 give a linear schedule; higher values front-load denoising."
             />
 
-            {/* ── LM sampling (ace-qwen3) — text2music only ─────────── */}
-            {taskType === 'text2music' && (
-              <>
-                <div className="flex items-center gap-2 pt-1">
+            {/* ── LM sampling (ace-qwen3) ──────────────────────────── */}
+            <>
+              <div className="flex items-center gap-2 pt-1">
                   <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest whitespace-nowrap">LM sampling (ace-qwen3)</span>
                   <div className="flex-1 border-t border-zinc-200 dark:border-white/10" />
                 </div>
@@ -2503,8 +2502,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     className="w-full h-16 bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-lg p-2 text-xs text-zinc-900 dark:text-white focus:outline-none resize-none"
                   />
                 </div>
-              </>
-            )}
+            </>
 
             {/* ── Passthrough ──────────────────────────────────────── */}
             <div className="flex items-center gap-2 pt-1">
