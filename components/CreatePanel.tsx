@@ -205,7 +205,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
   const [lmCfgScale, setLmCfgScale] = useState<number>(savedSettings.lmCfgScale ?? 2.2);
   const [lmTopK, setLmTopK] = useState<number>(savedSettings.lmTopK ?? 0);
   const [lmTopP, setLmTopP] = useState<number>(savedSettings.lmTopP ?? 0.92);
-  const [lmNegativePrompt, setLmNegativePrompt] = useState<string>(savedSettings.lmNegativePrompt ?? 'NO USER INPUT');
+  const [lmNegativePrompt, setLmNegativePrompt] = useState<string>(savedSettings.lmNegativePrompt ?? '');
 
   // Expert Parameters (now in Advanced section)
   // Note: audio URLs are NOT persisted — they may point to deleted/temporary files
@@ -1033,7 +1033,12 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
     setUnderstandResult(prev => ({ ...prev, [target]: null }));
     setUnderstandError(prev => ({ ...prev, [target]: null }));
     try {
-      const result = await generateApi.understandAudioUrl(audioUrl, token);
+      // Use ID-based endpoint for uploaded reference tracks so the result is
+      // persisted to the database alongside the track record.
+      const matchingTrack = referenceTracks.find(t => t.audio_url === audioUrl);
+      const result = matchingTrack
+        ? await generateApi.understandReferenceTrack(matchingTrack.id, token)
+        : await generateApi.understandAudioUrl(audioUrl, token);
       setUnderstandResult(prev => ({ ...prev, [target]: result }));
       setUnderstandStatus(prev => ({ ...prev, [target]: 'done' }));
     } catch (err) {
@@ -1727,6 +1732,23 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                   </>
                 )}
 
+                {/* Reference audio cover-strength slider (shown when a reference audio is loaded) */}
+                {audioTab === 'reference' && referenceAudioUrl && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] text-zinc-500 dark:text-zinc-400 whitespace-nowrap">{t('audioCoverStrength')}</label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={audioCoverStrength}
+                      onChange={(e) => setAudioCoverStrength(Number(e.target.value))}
+                      className="flex-1 h-1.5 accent-emerald-500"
+                    />
+                    <span className="text-[10px] text-zinc-400 tabular-nums w-7 text-right">{audioCoverStrength.toFixed(2)}</span>
+                  </div>
+                )}
+
                 {/* Source/Cover Audio Player */}
                 {audioTab === 'source' && sourceAudioUrl && (
                   <>
@@ -2009,12 +2031,50 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                         </div>
                         <button
                           type="button"
+                          onClick={() => void handleUnderstand('source', sourceAudioUrl)}
+                          disabled={understandStatus.source === 'running'}
+                          title={t('understandTooltip')}
+                          className="p-1.5 rounded-full hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors disabled:opacity-50"
+                        >
+                          {understandStatus.source === 'running' ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                        </button>
+                        <button
+                          type="button"
                           onClick={handleClearSourceAudio}
                           className="p-1.5 rounded-full hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-400 hover:text-zinc-600 dark:hover:text-white transition-colors"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
                         </button>
                       </div>
+                      {/* Understand result panel (lego source) */}
+                      {understandStatus.source !== 'idle' && (
+                        <div className={`rounded-lg px-3 py-2 text-[11px] space-y-1 ${
+                          understandStatus.source === 'error'
+                            ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                            : 'bg-violet-50 dark:bg-violet-900/20 text-violet-800 dark:text-violet-300'
+                        }`}>
+                          {understandStatus.source === 'running' && <span className="flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> {t('understandRunning')}</span>}
+                          {understandStatus.source === 'error' && <span>{t('understandError')}: {understandError.source}</span>}
+                          {understandStatus.source === 'done' && understandResult.source && (
+                            <>
+                              <div className="font-semibold">{t('understandResult')}</div>
+                              {understandResult.source.caption && <div className="truncate opacity-80">🎵 {String(understandResult.source.caption).slice(0, 80)}{String(understandResult.source.caption).length > 80 ? '…' : ''}</div>}
+                              <div className="flex flex-wrap gap-2 opacity-70">
+                                {understandResult.source.bpm && <span>BPM: {String(understandResult.source.bpm)}</span>}
+                                {understandResult.source.keyscale && <span>Key: {String(understandResult.source.keyscale)}</span>}
+                                {understandResult.source.duration && <span>Duration: {Math.round(Number(understandResult.source.duration))}s</span>}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => applyUnderstandResult(understandResult.source!)}
+                                className="mt-1 px-2 py-0.5 rounded bg-violet-600 text-white text-[10px] font-medium hover:bg-violet-700 transition-colors"
+                              >
+                                {t('understandApply')}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
                       </>
                     )}
 
