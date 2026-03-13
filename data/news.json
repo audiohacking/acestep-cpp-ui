@@ -5,6 +5,6 @@
     "title": "Switched to Acestep.cpp Backend",
     "body": "This forks builds on top of the acestep.cpp project for native AceStep inference using zero Python/Gradio/etc",
     "tags": ["backend", "experimental"]
-  },
+  }
 
 ]
