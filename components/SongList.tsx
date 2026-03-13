@@ -643,8 +643,8 @@ const SongItem: React.FC<SongItemProps> = ({
                         </span>
                         {song.audioUrl && !song.isGenerating && (() => {
                             const ext = song.audioUrl.split('.').pop()?.toLowerCase();
-                            const fmtLabel = ext === 'mp3' ? 'MP3' : ext === 'flac' ? 'FLAC' : ext === 'wav' ? 'WAV' : null;
-                            const fmtClass = ext === 'mp3' ? 'from-orange-500 to-amber-500' : ext === 'flac' ? 'from-violet-500 to-purple-600' : 'from-sky-500 to-blue-600';
+                            const fmtLabel = ext === 'mp3' ? 'MP3' : ext === 'wav' ? 'WAV' : null;
+                            const fmtClass = ext === 'mp3' ? 'from-orange-500 to-amber-500' : 'from-sky-500 to-blue-600';
                             return fmtLabel ? (
                                 <span className={`inline-flex items-center justify-center text-[9px] font-bold text-white bg-gradient-to-r ${fmtClass} px-1.5 py-0.5 rounded-sm shadow-sm`} title={`Audio format: ${fmtLabel}`}>
                                     {fmtLabel}

@@ -79,7 +79,7 @@ export interface GenerationParams {
   seed: number;
   thinking: boolean;
   enhance?: boolean;
-  audioFormat: 'wav' | 'mp3' | 'flac';
+  audioFormat: 'wav' | 'mp3';
   inferMethod: 'ode' | 'sde';
   shift: number;
 
