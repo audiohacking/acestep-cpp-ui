@@ -135,7 +135,7 @@ export const NewsPage: React.FC = () => {
 
         {/* Star Repo */}
         <a
-          href="https://github.com/fspecii/ace-step-ui"
+          href="https://github.com/audiohacking/acestep-cpp-ui"
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-3 mb-8 px-5 py-4 rounded-2xl border border-zinc-200 dark:border-white/5 bg-white dark:bg-suno-card hover:border-zinc-300 dark:hover:border-white/10 transition-all group"
