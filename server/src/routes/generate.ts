@@ -134,7 +134,7 @@ interface GenerateBody {
   randomSeed?: boolean;
   seed?: number;
   thinking?: boolean;
-  audioFormat?: 'mp3' | 'flac';
+  audioFormat?: 'mp3' | 'wav';
   inferMethod?: 'ode' | 'sde';
   shift?: number;
 
