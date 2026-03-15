@@ -3,21 +3,28 @@
  *
  * Start-up sequence
  * ─────────────────
- * 1. ensureDirs()         create user-space directories
- * 2. setupLibraryPaths()  set LD_LIBRARY_PATH / DYLD_LIBRARY_PATH so that
- *                         ace-qwen3 / dit-vae can find their shared libraries
- *                         (the Linux release ships libggml*.so alongside the
- *                         binaries; RUNPATH in the ELFs points to the CI build
- *                         dir, so we must override it at runtime)
- * 3. fixSonameLinks()     the Linux archive ships libggml.so / libggml-base.so
- *                         but the binaries link against the versioned sonames
- *                         libggml.so.0 / libggml-base.so.0 — create symlinks
- * 4. show loading window  file:// → electron/loading.html
- * 5. startServer()        set all env-vars, then dynamically import compiled
- *                         server so it starts inside Electron's own Node.js
- * 6. waitForServer()      poll until Express responds
- * 7. checkFirstRun()      if no .gguf files in MODELS_DIR, offer to download
- * 8. open main window     http://127.0.0.1:PORT
+ * 1. ensureDirs()            create user-space directories
+ * 2. setupLibraryPaths()     set LD_LIBRARY_PATH (Linux) / DYLD_LIBRARY_PATH
+ *                            (macOS) to BIN_DIR so that ace-qwen3 / dit-vae
+ *                            child processes find their shared libraries.
+ *                            Linux ELFs have a hardcoded RUNPATH to the CI
+ *                            build tree; macOS dylibs use versioned install
+ *                            names — both need the env var override.
+ * 3. fixSonameLinks()        Linux only: archive ships libggml.so /
+ *                            libggml-base.so (unversioned) but ELFs link
+ *                            against libggml.so.0 / libggml-base.so.0 —
+ *                            create the missing versioned symlinks.
+ * 4. fixMacosDylibLinks()    macOS only: archive ships real versioned dylibs
+ *                            (libggml.0.9.7.dylib) plus a two-level symlink
+ *                            chain (.0.dylib → .0.9.7.dylib, .dylib → .0.dylib).
+ *                            Recreate any missing symlinks in case
+ *                            electron-builder did not preserve them.
+ * 5. show loading window     file:// → electron/loading.html
+ * 6. startServer()           set all env-vars, then dynamically import compiled
+ *                            server so it starts inside Electron's own Node.js
+ * 7. waitForServer()         poll until Express responds
+ * 8. checkFirstRun()         if no .gguf files in MODELS_DIR, offer to download
+ * 9. open main window        http://127.0.0.1:PORT
  */
 
 import { app, BrowserWindow, dialog, shell } from 'electron';
@@ -79,12 +86,20 @@ function ensureDirs () {
 
 /**
  * Prepend BIN_DIR to the platform's dynamic-library search path so that the
- * ace-qwen3 / dit-vae child processes find libggml*.so / libggml*.dylib.
+ * ace-qwen3 / dit-vae child processes find their bundled shared libraries.
  *
- * The Linux ELFs have a hardcoded RUNPATH pointing to the CI build tree, which
- * won't exist on user machines, so LD_LIBRARY_PATH must override it.
- * The macOS binaries may use @rpath or dylib IDs; setting DYLD_LIBRARY_PATH
- * is harmless and helps if they don't embed correct rpaths.
+ * Linux: The ELFs have a hardcoded RUNPATH pointing to the CI build tree
+ *   (/home/runner/work/…) which never exists on user machines.
+ *   LD_LIBRARY_PATH overrides the RUNPATH and is inherited by every child
+ *   process spawned by the Express server.
+ *
+ * macOS: The release archive ships versioned dylibs (libggml.0.9.7.dylib,
+ *   libggml-base.0.9.7.dylib, libggml-metal.0.9.7.dylib, etc.) alongside
+ *   the binaries.  The dyld linker checks DYLD_LIBRARY_PATH before the
+ *   embedded @rpath or install-name path, so setting it to BIN_DIR ensures
+ *   the bundled libraries are found regardless of what paths were baked in
+ *   at compile time.  DYLD_FALLBACK_LIBRARY_PATH is set as an additional
+ *   safety net for transitive dylib-to-dylib dependencies.
  */
 function setupLibraryPaths () {
   if (!fs.existsSync(BIN_DIR)) return;
@@ -120,6 +135,42 @@ function fixSonameLinks () {
     if (fs.existsSync(realPath) && !fs.existsSync(sonamePath)) {
       try { fs.symlinkSync(real, sonamePath); } catch (_) {}
     }
+  }
+}
+
+/**
+ * The macOS binary archive ships real versioned dylibs (e.g. libggml.0.9.7.dylib)
+ * plus a two-level symlink chain:
+ *   libggml.dylib → libggml.0.dylib → libggml.0.9.7.dylib
+ *
+ * electron-builder may not preserve symlinks when collecting extraResources.
+ * This function recreates any missing alias links so the dynamic linker can
+ * find the libraries regardless of which name the binary references.
+ *
+ * It is safe to call on every launch — existing symlinks are left untouched.
+ */
+function fixMacosDylibLinks () {
+  if (process.platform !== 'darwin') return;
+  let files;
+  try { files = fs.readdirSync(BIN_DIR); } catch (_) { return; }
+
+  // Match versioned dylibs: libX.MAJOR.MINOR.PATCH.dylib
+  const verRe = /^(.+)\.(\d+)\.(\d+)\.(\d+)\.dylib$/;
+  for (const f of files) {
+    const match = f.match(verRe);
+    if (!match) continue;
+    const [, baseName, majorVersion] = match;
+    // e.g. baseName="libggml-metal", majorVersion="0"
+    const majorAlias  = `${baseName}.${majorVersion}.dylib`;  // libggml-metal.0.dylib
+    const simpleAlias = `${baseName}.dylib`;                  // libggml-metal.dylib
+
+    const majorPath  = path.join(BIN_DIR, majorAlias);
+    const simplePath = path.join(BIN_DIR, simpleAlias);
+
+    // major alias → versioned real file
+    if (!fs.existsSync(majorPath))  try { fs.symlinkSync(f, majorPath);          } catch (_) {}
+    // simple alias → major alias (two-step chain matches the macOS convention)
+    if (!fs.existsSync(simplePath)) try { fs.symlinkSync(majorAlias, simplePath); } catch (_) {}
   }
 }
 
@@ -409,6 +460,7 @@ app.whenReady().then(async () => {
   ensureDirs();
   setupLibraryPaths();
   fixSonameLinks();
+  fixMacosDylibLinks();
 
   createLoadingWindow();
 
