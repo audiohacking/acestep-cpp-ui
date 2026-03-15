@@ -10,7 +10,7 @@ on:
       tag:
         description: "Release tag (e.g. v1.0.0)"
         required: true
-        default: "v0.0.1-electron"
+        default: "v0.0.1"
       binary_version:
         description: "acestep.cpp release tag to bundle (e.g. v0.0.1)"
         required: false
@@ -56,10 +56,10 @@ jobs:
           cache: "npm"
 
       - name: Install root dependencies
-        run: npm ci
+        run: npm install
 
       - name: Install server dependencies
-        run: npm ci
+        run: npm install
         working-directory: server
 
       - name: Build frontend
@@ -184,10 +184,10 @@ jobs:
           cache: "npm"
 
       - name: Install root dependencies
-        run: npm ci
+        run: npm install
 
       - name: Install server dependencies
-        run: npm ci
+        run: npm install
         working-directory: server
 
       - name: Build frontend
