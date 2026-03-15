@@ -121,8 +121,8 @@ jobs:
             exit 1
           fi
           echo "App bundle: $APP"
-          chmod +x build/macos/codesign.sh
-          ./build/macos/codesign.sh "$APP"
+          chmod +x codesign.sh
+          ./codesign.sh "$APP"
         env:
           MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY || '-' }}
 
