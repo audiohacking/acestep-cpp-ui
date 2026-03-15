@@ -20,10 +20,12 @@
  *                            Recreate any missing symlinks in case
  *                            electron-builder did not preserve them.
  * 5. show loading window     file:// → electron/loading.html
- * 6. startServer()           set all env-vars, then dynamically import compiled
- *                            server so it starts inside Electron's own Node.js
- * 7. waitForServer()         poll until Express responds
- * 8. checkFirstRun()         if no .gguf files in MODELS_DIR, offer to download
+ * 6. checkFirstRun()         resolve MODELS_DIR (env var → saved pref → default);
+ *                            if no .gguf files found, offer to download, browse
+ *                            to an existing models folder, or skip.
+ * 7. startServer()           set all env-vars (including final MODELS_DIR), then
+ *                            dynamically import compiled server
+ * 8. waitForServer()         poll until Express responds
  * 9. open main window        http://127.0.0.1:PORT
  */
 
@@ -47,10 +49,10 @@ const appRoot      = app.getAppPath();
 // User-writable directories (never inside asar)
 const userDataPath = app.getPath('userData');
 const musicPath    = app.getPath('music');
-const MODELS_DIR   = path.join(userDataPath, 'models');
 const AUDIO_DIR    = path.join(musicPath, 'ACEStep');
 const DATA_DIR     = path.join(userDataPath, 'data');
 const LOGS_DIR     = path.join(userDataPath, 'logs');
+const PREFS_PATH   = path.join(userDataPath, 'prefs.json');
 
 // Precompiled binaries land in extraResources → <resourcesPath>/bin/
 // In dev mode we fall back to <projectRoot>/bin/
@@ -67,6 +69,42 @@ const DEFAULT_MODELS = [
   { filename: 'acestep-5Hz-lm-4B-Q8_0.gguf',        label: 'Language Model 4B Q8_0' },
   { filename: 'acestep-v15-turbo-Q8_0.gguf',        label: 'DiT Turbo Q8_0' },
 ];
+
+// ── Preferences ───────────────────────────────────────────────────────────────
+
+/** Read the persisted JSON prefs file, returning {} on any error. */
+function loadPrefs () {
+  try { return JSON.parse(fs.readFileSync(PREFS_PATH, 'utf8')); }
+  catch (err) {
+    if (err.code !== 'ENOENT') console.error('[Electron] Failed to read prefs:', err.message);
+    return {};
+  }
+}
+
+/** Merge `patch` into the persisted prefs file (creates the file if absent). */
+function savePrefs (patch) {
+  const current = loadPrefs();
+  try { fs.writeFileSync(PREFS_PATH, JSON.stringify({ ...current, ...patch }, null, 2)); }
+  catch (err) { console.error('[Electron] Failed to save prefs:', err.message); }
+}
+
+// ── Models directory (resolved once at startup) ───────────────────────────────
+//
+// Resolution priority:
+//   1. MODELS_DIR environment variable — set before launching the app, e.g.
+//      MODELS_DIR=/Volumes/SSD/ai-models open ACE-Step\ UI.app
+//   2. Saved user preference — path chosen via the "Browse" dialog on a
+//      previous launch, stored in <userData>/prefs.json
+//   3. Default: <userData>/models  (created automatically on first launch)
+//
+// `let` so that checkFirstRun() can update it when the user browses to an
+// existing folder; startServer() then passes the final value to the server.
+let MODELS_DIR = (() => {
+  if (process.env.MODELS_DIR) return path.resolve(process.env.MODELS_DIR);
+  const saved = loadPrefs().modelsDir;
+  if (saved) return saved;
+  return path.join(userDataPath, 'models');
+})();
 
 // ── Window handles ────────────────────────────────────────────────────────────
 
@@ -397,25 +435,71 @@ async function checkFirstRun () {
 
   const { response } = await dialog.showMessageBox({
     type: 'question',
-    buttons: ['Download now (~8 GB)', 'Skip — I\'ll add models manually'],
+    buttons: [
+      'Download now (~8 GB)',
+      'Browse for existing models…',
+      "Skip — I'll add models manually",
+    ],
     defaultId: 0,
-    cancelId: 1,
+    cancelId: 2,
     title: 'ACE-Step — First Run Setup',
     message: 'ACE-Step models not found',
     detail:
       `No .gguf model files were found in:\n${MODELS_DIR}\n\n` +
-      'Would you like to download the default Q8_0 set (~8 GB) from ' +
-      'HuggingFace now? This only needs to happen once.\n\n' +
-      'If you already have models elsewhere, choose "Skip" and set ' +
-      'MODELS_DIR in the app settings.',
+      'Choose an option:\n' +
+      '  • Download — fetch the default Q8_0 model set (~8 GB) from HuggingFace\n' +
+      '  • Browse   — point to a folder where you already have ACE-Step .gguf files\n' +
+      '  • Skip     — start without models and add them manually later\n\n' +
+      'A browsed folder path is saved and reused on every subsequent launch.\n' +
+      'You can also set MODELS_DIR in your environment before launching the app.',
   });
 
   if (response === 0) {
+    // ── Download ────────────────────────────────────────────────────────────
     sendStatus('Starting model downloads…', 0, '');
     await downloadModels();
     sendStatus('Models ready!', 100, '');
     await new Promise(r => setTimeout(r, 800)); // brief pause so user sees "ready"
+
+  } else if (response === 1) {
+    // ── Browse for existing models ──────────────────────────────────────────
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: 'Select your ACE-Step models folder',
+      defaultPath: app.getPath('home'),
+      properties: ['openDirectory'],
+      buttonLabel: 'Use this folder',
+    });
+
+    if (!canceled && filePaths.length > 0) {
+      const chosen = filePaths[0];
+      let hasGguf = false;
+      try {
+        hasGguf = fs.readdirSync(chosen).some(
+          f => f.endsWith('.gguf') && !f.endsWith('.part'),
+        );
+      } catch (_) {}
+
+      if (hasGguf) {
+        MODELS_DIR = chosen;
+        savePrefs({ modelsDir: chosen });
+        sendStatus(`Using models from: ${path.basename(chosen)}`);
+      } else {
+        await dialog.showMessageBox({
+          type: 'warning',
+          buttons: ['OK'],
+          title: 'No models found',
+          message: 'No .gguf files found in the selected folder',
+          detail:
+            `${chosen}\n\n` +
+            'The app will start without models loaded. ' +
+            'You can set MODELS_DIR in your environment and relaunch, ' +
+            'or place .gguf files in the folder shown above.',
+        });
+      }
+    }
+    // Canceled or no valid folder → fall through and start without models
   }
+  // response === 2 → skip, start without models
 }
 
 // ── Main window ───────────────────────────────────────────────────────────────
@@ -464,14 +548,14 @@ app.whenReady().then(async () => {
 
   createLoadingWindow();
 
+  sendStatus('Checking models…');
+  await checkFirstRun();
+
   sendStatus('Starting server…');
   await startServer();
 
   sendStatus('Waiting for server…');
   await waitForServer();
-
-  sendStatus('Checking models…');
-  await checkFirstRun();
 
   sendStatus('Opening app…', 100, '');
   createWindow();

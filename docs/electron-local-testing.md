@@ -7,7 +7,9 @@ These steps let you validate the macOS and Linux Electron builds **locally** bef
 - The symlink chain is intact (macOS `.0.dylib` / `.dylib`; Linux `.so.0`)
 - `DYLD_LIBRARY_PATH` (macOS) or `LD_LIBRARY_PATH` (Linux) is correctly set to `bin/` at runtime
 - The Electron app starts, shows the loading screen, and opens the UI
-- First-run model download dialog appears if no `.gguf` files are present
+- First-run model dialog offers Download, Browse, and Skip options
+- Browsing to an existing models folder persists the choice across restarts
+- `MODELS_DIR` env var is respected and takes priority over saved preferences
 
 ---
 
@@ -169,8 +171,8 @@ npm run electron:dev
 | # | Expected behaviour |
 |---|--------------------|
 | 1 | A dark frameless **loading window** appears with a progress bar |
-| 2 | Status text cycles: *"Starting server…"* → *"Waiting for server…"* → *"Checking models…"* → *"Opening app…"* |
-| 3 | If **no `.gguf` files** exist in the models directory (see below), a native dialog appears: *"ACE-Step models not found"* offering *"Download now (~8 GB)"* or *"Skip"* — click **Skip** for now |
+| 2 | Status text shows *"Checking models…"* **before** *"Starting server…"* (model check now runs first so the resolved path is passed to the server) |
+| 3 | If **no `.gguf` files** exist in the models directory, a native dialog appears: *"ACE-Step models not found"* with **three** buttons: *"Download now (~8 GB)"*, *"Browse for existing models…"*, and *"Skip — I'll add models manually"* — click **Skip** for now |
 | 4 | The main browser window opens at `http://127.0.0.1:3001` and shows the ACE-Step UI |
 | 5 | No crash / black screen / *"library not found"* errors in the terminal |
 
@@ -280,6 +282,95 @@ Open `release/*.dmg`, mount it, and drag **ACE-Step UI.app** to `/Applications`.
 
 ---
 
+## Step 10 — Test the models path feature
+
+This step validates the new first-run UX for users who already have ACE-Step models locally.
+
+### 10a — Browse dialog
+
+1. Remove (or temporarily rename) the models directory so the app treats this as a first run:
+
+   ```bash
+   # macOS
+   mv ~/Library/Application\ Support/ACE-Step\ UI/models \
+      ~/Library/Application\ Support/ACE-Step\ UI/models.bak
+
+   # Linux
+   mv ~/.config/ACE-Step\ UI/models ~/.config/ACE-Step\ UI/models.bak
+   ```
+
+2. Clear any saved preference so the dialog triggers:
+
+   ```bash
+   # macOS
+   rm -f ~/Library/Application\ Support/ACE-Step\ UI/prefs.json
+
+   # Linux
+   rm -f ~/.config/ACE-Step\ UI/prefs.json
+   ```
+
+3. Run the app:
+
+   ```bash
+   npm run electron:dev
+   ```
+
+4. The first-run dialog should appear with **three** buttons:
+   - `Download now (~8 GB)`
+   - `Browse for existing models…`
+   - `Skip — I'll add models manually`
+
+5. Click **Browse for existing models…** and navigate to the `.bak` folder (or any folder containing `.gguf` files).
+
+6. **Expected**: the app starts normally and the models folder in the loading status shows the path you selected.
+
+7. Quit and relaunch — the dialog should **not** appear again; the persisted path is used automatically.
+
+8. Verify the saved preference:
+
+   ```bash
+   # macOS
+   cat ~/Library/Application\ Support/ACE-Step\ UI/prefs.json
+
+   # Linux
+   cat ~/.config/ACE-Step\ UI/prefs.json
+   ```
+
+   Expected content:
+   ```json
+   {
+     "modelsDir": "/path/to/the/folder/you/selected"
+   }
+   ```
+
+9. **Edge case — empty folder**: repeat from step 3, click Browse, and select a folder that contains **no** `.gguf` files.  A warning dialog should appear, the app should start without models (no crash), and `prefs.json` should **not** be updated.
+
+### 10b — `MODELS_DIR` environment variable
+
+The env var takes priority over saved preferences.
+
+```bash
+# macOS / Linux
+MODELS_DIR=/path/to/your/models npm run electron:dev
+```
+
+**Expected**:
+- The first-run dialog does **not** appear (models found via env var)
+- The server uses the specified directory for model lookups
+- The saved `prefs.json` (if any) is ignored in favour of the env var
+
+To verify the server received the correct path, check the log:
+
+```bash
+# macOS
+grep -i "MODELS_DIR\|models" ~/Library/Application\ Support/ACE-Step\ UI/logs/server.log | head -5
+
+# Linux
+grep -i "MODELS_DIR\|models" ~/.config/ACE-Step\ UI/logs/server.log | head -5
+```
+
+---
+
 ## Quick checklist
 
 Copy this into a PR comment to report results:
@@ -293,11 +384,13 @@ Copy this into a PR comment to report results:
 - [ ] Step 2: All binaries executable; all libggml dylibs / .so files present
 - [ ] Step 3: Frontend and server builds succeed
 - [ ] Step 4: `@electron/rebuild` succeeds for `better-sqlite3`
-- [ ] Step 5: App starts — loading window → UI opens, no library errors in terminal
+- [ ] Step 5: App starts — loading window shows "Checking models…" first, then "Starting server…"; UI opens; no library errors
 - [ ] Step 6: `DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH` points to `bin/`
 - [ ] Step 7: All expected dylib / soname symlinks present after first launch
 - [ ] Step 8: Generation smoke test completes and audio is playable
 - [ ] Step 9 (macOS): Packaged `.dmg` installs and runs correctly
+- [ ] Step 10a: Browse dialog — picking a valid folder persists path; invalid folder shows warning; preference survives relaunch
+- [ ] Step 10b: `MODELS_DIR` env var overrides saved preference; dialog skipped when models found
 
 **Notes / failures:**
 <!-- describe anything unexpected -->
