@@ -309,6 +309,40 @@ jobs:
           [[ "$TAG" == v* ]] || TAG="${{ github.event.inputs.tag || 'v0.0.1-electron' }}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Check if Release Exists
+        id: release_check
+        run: |
+          if gh release view "${{ steps.tag.outputs.tag }}"; then
+            echo "Release exists."
+            echo "::set-output name=exists::true"
+          else
+            echo "Release does not exist."
+            echo "::set-output name=exists::false"
+          fi
+          
+      - name: Create Release if missing
+        if: steps.release_check.outputs.exists != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          draft: false
+          prerelease: false
+          name: '${{ steps.tag.outputs.tag}}'
+          body: |
+            ## ACE-Step CPP UI ${{ steps.tag.outputs.tag }} — Electron Desktop App
+
+            Native desktop application with embedded server and precompiled
+            [acestep.cpp](https://github.com/audiohacking/acestep.cpp) binaries bundled — no compiler or build step required.
+
+            ### Downloads
+
+            | File | Platform |
+            |------|----------|
+            | `*.dmg`      | macOS — Apple Silicon (arm64) |
+            | `*.AppImage` | Linux — x86_64 (portable, any distro) |
+            | `*.snap`     | Linux — x86_64 (Snap Store / snapd) |
+
+          
       - name: Upload to release
         if: steps.tag.outputs.tag
         env:
@@ -316,5 +350,6 @@ jobs:
         run: |
           gh release upload "${{ steps.tag.outputs.tag }}" \
             release-artifacts/*.snap \
+            release-artifacts/*.AppImage \
             release-artifacts/*.dmg \
             --clobber
