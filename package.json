@@ -38,6 +38,7 @@
     "appId": "io.audiohacking.acestep-cpp-ui",
     "productName": "ACE-Step UI",
     "npmRebuild": false,
+    "icon": "electron/icons/icon",
     "directories": {
       "output": "release"
     },
@@ -66,11 +67,19 @@
       "target": [
         { "target": "dmg", "arch": ["arm64"] }
       ],
-      "category": "public.app-category.music"
+      "category": "public.app-category.music",
+      "icon": "electron/icons/icon.icns"
     },
     "linux": {
       "target": ["AppImage", "deb"],
-      "category": "Audio"
+      "category": "Audio",
+      "icon": "electron/icons/icon.png"
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "icon": "electron/icons/icon.ico"
     }
   }
 }
