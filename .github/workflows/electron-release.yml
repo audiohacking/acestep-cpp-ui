@@ -293,7 +293,11 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub Release
+        # Uses the built-in GITHUB_TOKEN (contents: write granted above).
+        # No custom PAT/GH_TOKEN secret is required.
         uses: softprops/action-gh-release@v2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: "ACE-Step UI ${{ steps.tag.outputs.tag }} — Desktop App"
