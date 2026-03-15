@@ -24,7 +24,16 @@
 
 ---
 
-## 📋 Requirements
+
+## ⚡ Quick Start
+
+📦 Download and install a prebuilt [release](https://github.com/audiohacking/acestep-cpp-ui/releases) for your OS _(experimental)_
+
+> If this worked you're done 🎉 if it didn't work, keep reading how to build a local version
+
+---
+
+## 📋 Dev Requirements
 
 | Requirement | Specification |
 |-------------|---------------|
@@ -37,12 +46,6 @@
 > **No Python required.** The C++ engine runs standalone — just build it once and it stays ready.
 
 ---
-
-## ⚡ Quick Start
-
-📦 Download and install a prebuilt [release](https://github.com/audiohacking/acestep-cpp-ui/releases) for your OS _(experimental)_
-
-> If this worked you don't need to read further 🎉
 
 ### Linux / macOS 
 ```bash
