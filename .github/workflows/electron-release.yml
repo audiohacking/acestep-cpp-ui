@@ -1,6 +1,5 @@
 name: Electron Release
 
-# Triggered by a version tag push (v*) or a manual run.
 on:
   push:
     tags:
@@ -8,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v1.0.0)"
+        description: "Release tag (e.g. v0.0.1)"
         required: true
         default: "v0.0.1"
       binary_version:
@@ -100,6 +99,14 @@ jobs:
           done
           [ "$warn" = "0" ] || echo "⚠️  Some files missing — verify BINARY_VERSION=${BINARY_VERSION}"
 
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME:-}"
+          [[ "$TAG" == v* ]] || TAG="${{ github.event.inputs.tag || 'v0.0.1-electron' }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          
       - name: Rebuild native modules for Electron
         run: npx @electron/rebuild --module-dir server --only better-sqlite3
 
@@ -110,6 +117,7 @@ jobs:
         run: npm run electron:build:mac -- --dir
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false   # we sign manually below
+          npm_package_version: ${{ steps.tag.outputs.tag }}
 
       - name: Code sign the app bundle
         shell: bash
@@ -131,7 +139,7 @@ jobs:
         run: |
           APP="$(find release/mac-arm64 -maxdepth 1 -name '*.app' | head -1)"
           APP_NAME="$(basename "$APP" .app)"
-          VERSION="$(node -p "require('./package.json').version")"
+          VERSION="${{ steps.tag.outputs.tag }}"
           DMG_NAME="${APP_NAME}-${VERSION}-arm64.dmg"
 
           echo "Creating DMG: ${DMG_NAME}"
@@ -244,11 +252,20 @@ jobs:
 
       - name: Install snapcraft
         run: sudo snap install snapcraft --classic
+        
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME:-}"
+          [[ "$TAG" == v* ]] || TAG="${{ github.event.inputs.tag || 'v0.0.1-electron' }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Build Electron package (Linux)
         run: npm run electron:build:linux -- --publish=never
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ""   # offline / no store upload
+          npm_package_version: ${{ steps.tag.outputs.tag }}
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
@@ -293,12 +310,11 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Upload to release
-        if: steps.tag.outputs.value
+        if: steps.tag.outputs.tag
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ steps.tag.outputs.tag }}" \
-            release/**/*.AppImage \
-            release/**/*.snap \
-            release/**/*.dmg \
+            release-artifacts/*.snap \
+            release-artifacts/*.dmg \
             --clobber
