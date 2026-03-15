@@ -103,10 +103,52 @@ jobs:
       - name: Rebuild native modules for Electron
         run: npx @electron/rebuild --module-dir server --only better-sqlite3
 
-      - name: Build Electron package (macOS)
-        run: npm run electron:build:mac
+      - name: Build Electron app bundle (unpacked)
+        # Build the unpacked .app directory so we can sign it before packaging.
+        # electron-builder --dir skips DMG creation; we create the DMG ourselves
+        # after signing so the delivered image contains a properly signed bundle.
+        run: npm run electron:build:mac -- --dir
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          CSC_IDENTITY_AUTO_DISCOVERY: false   # we sign manually below
+
+      - name: Code sign the app bundle
+        shell: bash
+        run: |
+          APP="$(find release/mac-arm64 -maxdepth 1 -name '*.app' | head -1)"
+          if [ -z "$APP" ]; then
+            echo "❌  No .app bundle found in release/mac-arm64/"
+            ls -lh release/mac-arm64/ || true
+            exit 1
+          fi
+          echo "App bundle: $APP"
+          chmod +x build/macos/codesign.sh
+          ./build/macos/codesign.sh "$APP"
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY || '-' }}
+
+      - name: Create DMG
+        shell: bash
+        run: |
+          APP="$(find release/mac-arm64 -maxdepth 1 -name '*.app' | head -1)"
+          APP_NAME="$(basename "$APP" .app)"
+          VERSION="$(node -p "require('./package.json').version")"
+          DMG_NAME="${APP_NAME}-${VERSION}-arm64.dmg"
+
+          echo "Creating DMG: ${DMG_NAME}"
+          mkdir -p dist_dmg
+          cp -R "$APP" dist_dmg/
+          # Add Applications symlink for drag-and-drop install
+          ln -sf /Applications dist_dmg/Applications
+
+          hdiutil create \
+            -volname "${APP_NAME}" \
+            -srcfolder dist_dmg \
+            -ov \
+            -format UDZO \
+            "release/${DMG_NAME}"
+
+          echo "✅  DMG: release/${DMG_NAME}"
+          ls -lh "release/${DMG_NAME}"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
@@ -280,6 +322,14 @@ jobs:
             - **Linux** `~/.config/ACE-Step UI/models/`
 
             Generated audio is saved to `~/Music/ACEStep/`.
+
+            ### macOS notes
+
+            The DMG is ad-hoc signed (no Apple notarisation required for dev builds).
+            If macOS still shows a "damaged or incomplete" warning, run once:
+            ```
+            xattr -cr "/Applications/ACE-Step UI.app"
+            ```
 
             ### Linux notes
 
