@@ -565,8 +565,11 @@ app.whenReady().then(async () => {
   });
 });
 
+// Quit the app (and the in-process Express server) whenever the last window
+// is closed, including on macOS where the default behavior would be to keep
+// the app running in the Dock.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  app.quit();
 });
 
 app.on('before-quit', () => {
