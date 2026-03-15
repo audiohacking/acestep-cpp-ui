@@ -45,7 +45,7 @@ jobs:
     name: Build — macOS arm64
     runs-on: macos-14
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -173,7 +173,7 @@ jobs:
     name: Build — Linux x64
     runs-on: ubuntu-22.04
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
