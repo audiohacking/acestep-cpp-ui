@@ -57,6 +57,14 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
+    // Always allow loopback origins on the server's own port — this covers the
+    // Electron desktop shell, which loads http://127.0.0.1:PORT in a BrowserWindow
+    // that runs the Express server with NODE_ENV=production.
+    const loopbackOrigins = new Set([
+      `http://localhost:${config.port}`,
+      `http://127.0.0.1:${config.port}`,
+    ]);
+    if (loopbackOrigins.has(origin)) return callback(null, true);
     // Allow localhost and 127.0.0.1 on any port in development
     if (config.nodeEnv === 'development') {
       if (origin.includes('localhost') || origin.includes('127.0.0.1')) {

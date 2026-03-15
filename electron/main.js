@@ -327,7 +327,7 @@ function downloadFile (url, destPath, progressCb, maxRedirects = 15) {
     const parsed  = new NodeURL(url);
     const getter  = parsed.protocol === 'https:' ? https : http;
 
-    const req = getter.get(url, { headers: { 'User-Agent': 'ACEStepUI-Electron/1.0' } }, (res) => {
+    const req = getter.get(url, { headers: { 'User-Agent': 'ACE-Step-UI-Electron/1.0' } }, (res) => {
       // Follow redirects (HuggingFace → CDN is a common pattern)
       if (res.statusCode >= 301 && res.statusCode <= 308 && res.headers.location) {
         res.resume();
