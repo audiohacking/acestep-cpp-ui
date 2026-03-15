@@ -12,7 +12,8 @@
     "electron:dev": "electron .",
     "electron:build": "electron-builder",
     "electron:build:mac": "electron-builder --mac",
-    "electron:build:linux": "electron-builder --linux"
+    "electron:build:linux": "electron-builder --linux",
+    "electron:build:win": "electron-builder --win"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
@@ -71,9 +72,15 @@
       "icon": "electron/icons/icon.icns"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": ["AppImage", "snap"],
       "category": "Audio",
       "icon": "electron/icons/icon.png"
+    },
+    "snap": {
+      "summary": "ACE-Step UI — AI music generation desktop app",
+      "description": "Native desktop application for ACE-Step AI music generation with embedded server and precompiled binaries. Supports text-to-music, cover, repaint and LEGO modes.",
+      "grade": "stable",
+      "confinement": "classic"
     },
     "win": {
       "target": [

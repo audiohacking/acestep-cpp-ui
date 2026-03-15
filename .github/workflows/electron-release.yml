@@ -1,6 +1,6 @@
 name: Electron Release
 
-# Triggered by a new semver tag push or a manual dispatch with an explicit tag.
+# Triggered by a version tag push (v*) or a manual run.
 on:
   push:
     tags:
@@ -22,68 +22,39 @@ concurrency:
 
 env:
   NODE_VERSION: "20"
-  # Default acestep.cpp binary release to bundle.  Can be overridden per-run
-  # via the workflow_dispatch input above.
+  # acestep.cpp binary release to bundle; override via workflow_dispatch input.
   BINARY_VERSION: ${{ github.event.inputs.binary_version || 'v0.0.1' }}
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Shared setup steps are defined as a reusable composite action inline via
+# `run` steps repeated in each job.  Each job is self-contained so the CI
+# log is easy to read and debug per platform.
+#
+# Archive layout (flat tarball — all files at ./):
+#   bin/<binary>          ace-qwen3, dit-vae, neural-codec, …
+#   bin/lib<name>.so      Linux shared libraries (unversioned names)
+#   bin/lib<name>.dylib   macOS dylibs (versioned + symlink chain)
+# ──────────────────────────────────────────────────────────────────────────────
+
 jobs:
+
   # ────────────────────────────────────────────────────────────────────────────
-  # Per-platform Electron build
-  #
-  # Both archives are FLAT tarballs: every file sits directly at "./" with no
-  # subdirectory.  Extracting with "tar -xzf archive.tar.gz -C bin/" places
-  # everything (binaries AND shared libraries) straight into bin/.
-  #
-  # Linux:  The archive ships binaries (ace-qwen3, dit-vae, …) AND shared
-  #         libraries (libggml*.so, libggml-base*.so, etc.).  The ELFs have a
-  #         hardcoded RUNPATH pointing to the CI build tree; LD_LIBRARY_PATH
-  #         must be set at runtime to override it (done in electron/main.js).
-  #         The archive ships unversioned names (libggml.so) while the ELFs
-  #         link against versioned sonames (libggml.so.0) — we create those
-  #         symlinks in CI and again at runtime as a fallback.
-  #
-  # macOS:  The archive ships binaries AND versioned dylibs:
-  #           libggml.0.9.7.dylib  (real file)
-  #           libggml.0.dylib      (symlink → libggml.0.9.7.dylib)
-  #           libggml.dylib        (symlink → libggml.0.dylib)
-  #         … and the same two-level chain for libggml-base, libggml-metal,
-  #         libggml-cpu, and libggml-blas.
-  #         DYLD_LIBRARY_PATH is set to BIN_DIR at runtime (electron/main.js)
-  #         so dyld finds them regardless of the install names baked in at
-  #         compile time.  The symlink chain is also recreated at runtime
-  #         (fixMacosDylibLinks) in case electron-builder loses the symlinks.
+  # macOS — Apple Silicon → ACE-Step UI-*.dmg
   # ────────────────────────────────────────────────────────────────────────────
-  build:
-    name: Electron — ${{ matrix.os-label }}
-    runs-on: ${{ matrix.runner }}
+  build-mac:
+    name: Build — macOS arm64
+    runs-on: macos-14
     permissions:
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # macOS Apple Silicon → .dmg
-          - runner: macos-14
-            os-label: macOS-arm64
-            platform_flag: --mac
-            binary_archive: acestep-macos-arm64-metal.tar.gz
-
-          # Linux x86_64 → .AppImage + .deb
-          - runner: ubuntu-22.04
-            os-label: Linux-x64
-            platform_flag: --linux
-            binary_archive: acestep-linux-x64.tar.gz
 
     steps:
       - uses: actions/checkout@v4
 
-      # ── Node setup ──────────────────────────────────────────────────────────
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
 
-      # ── Install dependencies ────────────────────────────────────────────────
       - name: Install root dependencies
         run: npm ci
 
@@ -91,60 +62,116 @@ jobs:
         run: npm ci
         working-directory: server
 
-      # ── Build frontend (Vite → dist/) ───────────────────────────────────────
       - name: Build frontend
         run: npm run build
 
-      # ── Build server (TypeScript → server/dist/) ────────────────────────────
       - name: Build server
         run: npm run build
         working-directory: server
 
-      # ── Download & extract precompiled acestep.cpp binaries ─────────────────
-      #
-      # Both archives are FLAT tarballs: every file sits directly at "./"
-      # with no subdirectory.  Extracting with "-C bin/" places everything
-      # (binaries AND shared libraries) straight into bin/.
-      #
-      # The "./" prefix in the archive is equivalent to the extraction target,
-      # so "tar -xzf archive.tar.gz -C bin/" is the correct command.
-      # "--strip-components" must NOT be used: it would strip the "./" and
-      # attempt to extract into bin/ itself which is fine, but we keep the
-      # command simple and explicit.
       - name: Download & extract acestep.cpp binaries
         shell: bash
         run: |
+          ARCHIVE="acestep-macos-arm64-metal.tar.gz"
+          URL="https://github.com/audiohacking/acestep.cpp/releases/download/${BINARY_VERSION}/${ARCHIVE}"
+          echo "Downloading ${ARCHIVE} from ${URL} …"
+          curl -fsSL --retry 3 "${URL}" -o "${ARCHIVE}"
           mkdir -p bin
-          BINARY_URL="https://github.com/audiohacking/acestep.cpp/releases/download/${BINARY_VERSION}/${{ matrix.binary_archive }}"
-
-          echo "Downloading ${{ matrix.binary_archive }} from ${BINARY_URL} …"
-          curl -fsSL --retry 3 \
-            "${BINARY_URL}" \
-            -o '${{ matrix.binary_archive }}'
-
-          echo "Archive contents:"
-          tar -tzf '${{ matrix.binary_archive }}' | head -40
-
-          echo ""
-          echo "Extracting into bin/ …"
-          tar -xzf '${{ matrix.binary_archive }}' -C bin/
-
-          echo ""
-          echo "bin/ after extraction:"
+          tar -xzf "${ARCHIVE}" -C bin/
+          echo "bin/ contents:"
           ls -lh bin/
 
-      # ── Create versioned soname symlinks (Linux only) ───────────────────────
-      #
-      # The Linux ELFs link against libggml.so.0 / libggml-base.so.0 (sonames)
-      # but the archive ships libggml.so / libggml-base.so (unversioned names).
-      # Without the symlinks the dynamic linker cannot resolve the libraries.
-      # These symlinks are created here before packaging so that electron-builder
-      # can include them in extraResources.  The Electron main process also
-      # creates them at runtime as a fallback (e.g. during development).
-      - name: Create soname symlinks (Linux)
-        if: matrix.os-label == 'Linux-x64'
+      - name: Verify macOS dylibs
         shell: bash
         run: |
+          # macOS dylibs ship as versioned files + two-level symlink chain:
+          #   lib<name>.0.9.7.dylib  →  lib<name>.0.dylib  →  lib<name>.dylib
+          GGML_VER="0.9.7"
+          warn=0
+          for base in libggml libggml-base libggml-metal libggml-cpu libggml-blas; do
+            for name in "${base}.${GGML_VER}.dylib" "${base}.0.dylib" "${base}.dylib"; do
+              if [ -e "bin/${name}" ]; then echo "✅  bin/${name}"
+              else echo "⚠️  bin/${name} — missing"; warn=1; fi
+            done
+          done
+          for bin in ace-qwen3 dit-vae neural-codec; do
+            if [ -f "bin/${bin}" ] && [ -x "bin/${bin}" ]; then echo "✅  bin/${bin}"
+            else echo "⚠️  bin/${bin} — not found or not executable"; warn=1; fi
+          done
+          [ "$warn" = "0" ] || echo "⚠️  Some files missing — verify BINARY_VERSION=${BINARY_VERSION}"
+
+      - name: Rebuild native modules for Electron
+        run: npx @electron/rebuild --module-dir server --only better-sqlite3
+
+      - name: Build Electron package (macOS)
+        run: npm run electron:build:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-macos-arm64
+          path: release/**/*.dmg
+          if-no-files-found: warn
+          retention-days: 7
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Linux — x86_64 → ACE-Step UI-*.AppImage + ACE-Step UI-*.snap
+  #
+  # The Linux ELFs have a hardcoded RUNPATH pointing to the CI build tree.
+  # At runtime electron/main.js prepends BIN_DIR to LD_LIBRARY_PATH so the
+  # bundled shared libraries are found regardless.
+  #
+  # The archive ships unversioned .so names (libggml.so) but ELFs link against
+  # versioned sonames (libggml.so.0).  We create the missing symlinks before
+  # packaging so electron-builder includes them in extraResources.
+  # ────────────────────────────────────────────────────────────────────────────
+  build-linux:
+    name: Build — Linux x64
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: server
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build server
+        run: npm run build
+        working-directory: server
+
+      - name: Download & extract acestep.cpp binaries
+        shell: bash
+        run: |
+          ARCHIVE="acestep-linux-x64.tar.gz"
+          URL="https://github.com/audiohacking/acestep.cpp/releases/download/${BINARY_VERSION}/${ARCHIVE}"
+          echo "Downloading ${ARCHIVE} from ${URL} …"
+          curl -fsSL --retry 3 "${URL}" -o "${ARCHIVE}"
+          mkdir -p bin
+          tar -xzf "${ARCHIVE}" -C bin/
+          echo "bin/ contents:"
+          ls -lh bin/
+
+      - name: Create versioned soname symlinks
+        shell: bash
+        run: |
+          # ELFs link against libggml.so.0 / libggml-base.so.0 (sonames) but
+          # the archive ships the unversioned names.  Create the missing links.
           cd bin
           for pair in "libggml.so:libggml.so.0" "libggml-base.so:libggml-base.so.0"; do
             real="${pair%%:*}"
@@ -153,80 +180,41 @@ jobs:
               ln -sv "$real" "$soname"
             fi
           done
-          echo "Symlinks in bin/:"
+          echo "Symlinks:"
           ls -la | grep " -> " || echo "(none)"
 
-      # ── Verify key binaries and libraries are present ───────────────────────
-      - name: Verify binaries
+      - name: Verify Linux binaries & libraries
         shell: bash
         run: |
           warn=0
           for bin in ace-qwen3 dit-vae neural-codec; do
-            if [ -f "bin/$bin" ] && [ -x "bin/$bin" ]; then
-              echo "✅  bin/$bin"
-            else
-              echo "⚠️  bin/$bin — not found or not executable"
-              warn=1
-            fi
+            if [ -f "bin/${bin}" ] && [ -x "bin/${bin}" ]; then echo "✅  bin/${bin}"
+            else echo "⚠️  bin/${bin} — not found or not executable"; warn=1; fi
           done
+          for lib in libggml.so libggml-base.so libggml.so.0 libggml-base.so.0; do
+            if [ -e "bin/${lib}" ]; then echo "✅  bin/${lib}"
+            else echo "⚠️  bin/${lib} — missing"; warn=1; fi
+          done
+          [ "$warn" = "0" ] || echo "⚠️  Some files missing — verify BINARY_VERSION=${BINARY_VERSION}"
 
-          # Linux: check that all required .so files and versioned soname
-          # symlinks are present in bin/ alongside the binaries.
-          if [ '${{ matrix.os-label }}' = 'Linux-x64' ]; then
-            for lib in libggml.so libggml-base.so libggml.so.0 libggml-base.so.0; do
-              if [ -e "bin/$lib" ]; then
-                echo "✅  bin/$lib"
-              else
-                echo "⚠️  bin/$lib — missing"
-                warn=1
-              fi
-            done
-          fi
-
-          # macOS: check that the real versioned dylibs are present, plus the
-          # two-level symlink chain (.0.dylib and .dylib) for each library.
-          # GGML_VER matches the version shipped in the v0.0.1 archive.
-          if [ '${{ matrix.os-label }}' = 'macOS-arm64' ]; then
-            GGML_VER="0.9.7"
-            for lib_base in libggml libggml-base libggml-metal libggml-cpu libggml-blas; do
-              for lib_name in "${lib_base}.${GGML_VER}.dylib" "${lib_base}.0.dylib" "${lib_base}.dylib"; do
-                if [ -e "bin/${lib_name}" ]; then
-                  echo "✅  bin/${lib_name}"
-                else
-                  echo "⚠️  bin/${lib_name} — missing"
-                  warn=1
-                fi
-              done
-            done
-          fi
-
-          if [ "$warn" = "1" ]; then
-            echo ""
-            echo "⚠️  One or more expected files are missing — the packaged app may not work correctly."
-            echo "    Verify that BINARY_VERSION=${BINARY_VERSION} points to the correct release."
-          fi
-
-      # ── Rebuild better-sqlite3 for Electron's Node.js ──────────────────────
       - name: Rebuild native modules for Electron
         run: npx @electron/rebuild --module-dir server --only better-sqlite3
 
-      # ── Package with electron-builder ───────────────────────────────────────
-      - name: Build Electron package
-        run: npm run electron:build -- ${{ matrix.platform_flag }}
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false   # skip code-signing in CI
+      - name: Install snapcraft
+        run: sudo snap install snapcraft --classic
 
-      # ── Collect and upload artifacts ─────────────────────────────────────────
-      - name: Upload artifacts
+      - name: Build Electron package (Linux)
+        run: npm run electron:build:linux
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ""   # offline / no store upload
+
+      - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: electron-${{ matrix.os-label }}
+          name: electron-linux-x64
           path: |
-            release/**/*.dmg
             release/**/*.AppImage
-            release/**/*.deb
-            release/**/*.tar.gz
-            release/**/*.zip
+            release/**/*.snap
           if-no-files-found: warn
           retention-days: 7
 
@@ -235,7 +223,7 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────────
   publish:
     name: Publish GitHub Release
-    needs: build
+    needs: [build-mac, build-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -280,8 +268,8 @@ jobs:
             | File | Platform |
             |------|----------|
             | `*.dmg`      | macOS — Apple Silicon (arm64) |
-            | `*.AppImage` | Linux — x86_64 (any distro, single executable) |
-            | `*.deb`      | Linux — x86_64 (Debian / Ubuntu) |
+            | `*.AppImage` | Linux — x86_64 (portable, any distro) |
+            | `*.snap`     | Linux — x86_64 (Snap Store / snapd) |
 
             ### First run
 
@@ -295,8 +283,14 @@ jobs:
 
             ### Linux notes
 
-            The AppImage bundles the GGML shared libraries alongside the binaries.
-            If you see *"libggml.so.0: cannot open shared object file"* errors,
-            ensure the AppImage has execute permission (`chmod +x *.AppImage`).
+            **AppImage** — make executable then run:
+            ```
+            chmod +x ACE-Step*.AppImage && ./ACE-Step*.AppImage
+            ```
+
+            **Snap** — install locally (classic confinement required):
+            ```
+            sudo snap install *.snap --dangerous --classic
+            ```
           files: release-artifacts/**/*
           fail_on_unmatched_files: false
