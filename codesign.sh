@@ -8,7 +8,7 @@ set -euo pipefail
 # Configuration
 APP_PATH="${1:-dist/AceForge.app}"
 SIGNING_IDENTITY="${MACOS_SIGNING_IDENTITY:--}"  # Default to ad-hoc signing with "-"
-ENTITLEMENTS_PATH="build/macos/entitlements.plist"
+ENTITLEMENTS_PATH="entitlements.plist"
 
 echo "=================================================="
 echo "AceForge macOS Code Signing"
