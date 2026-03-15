@@ -231,7 +231,7 @@ function waitForServer (maxTries = 60, intervalMs = 500) {
         res.resume();
         resolve();
       });
-      req.setTimeout(400, () => req.destroy());
+      req.setTimeout(1000, () => req.destroy());
       req.on('error', () => {
         if (++tries < maxTries) setTimeout(attempt, intervalMs);
         else resolve();
