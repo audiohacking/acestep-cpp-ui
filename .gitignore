@@ -97,3 +97,8 @@ wavacity-editor/
 
 # Script logs
 logs/
+
+# Electron build output
+release/
+dist-electron/
+

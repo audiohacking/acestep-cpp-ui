@@ -3,11 +3,16 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "cd server && npx tsx src/index.ts & npm run dev"
+    "start": "cd server && npx tsx src/index.ts & npm run dev",
+    "electron:dev": "electron .",
+    "electron:build": "electron-builder",
+    "electron:build:mac": "electron-builder --mac",
+    "electron:build:linux": "electron-builder --linux"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
@@ -18,12 +23,53 @@
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.6.0",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.27",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
     "postcss": "^8.5.8",
     "tailwindcss": "^3.4.19",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
+  },
+  "build": {
+    "appId": "io.audiohacking.acestep-cpp-ui",
+    "productName": "ACE-Step UI",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "dist/**/*",
+      "server/dist/**/*",
+      {
+        "from": "server/node_modules",
+        "to": "server/node_modules",
+        "filter": ["**/*"]
+      },
+      "server/package.json"
+    ],
+    "asarUnpack": [
+      "**/better-sqlite3/**"
+    ],
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin",
+        "filter": ["**/*"]
+      }
+    ],
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["arm64"] }
+      ],
+      "category": "public.app-category.music"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Audio"
+    }
   }
 }

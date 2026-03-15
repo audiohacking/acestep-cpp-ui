@@ -1,0 +1,182 @@
+name: Electron Release
+
+# Triggered by a new semver tag push or a manual dispatch with an explicit tag.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0.0)"
+        required: true
+        default: "v0.0.1-electron"
+
+concurrency:
+  group: electron-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Per-platform Electron build
+  # Downloads precompiled acestep.cpp binaries, builds frontend + server,
+  # runs electron-builder to produce .dmg (macOS) or .AppImage/.deb (Linux).
+  # ────────────────────────────────────────────────────────────────────────────
+  build:
+    name: Electron — ${{ matrix.os-label }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS Apple Silicon → .dmg
+          - runner: macos-14
+            os-label: macOS-arm64
+            platform_flag: --mac
+            binary_url: https://github.com/audiohacking/acestep.cpp/releases/download/v0.0.1/acestep-macos-arm64-metal.tar.gz
+
+          # Linux x86_64 → .AppImage + .deb
+          - runner: ubuntu-22.04
+            os-label: Linux-x64
+            platform_flag: --linux
+            binary_url: https://github.com/audiohacking/acestep.cpp/releases/download/v0.0.1/acestep-linux-x64.tar.gz
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Node setup ─────────────────────────────────────────────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      # ── Install dependencies ────────────────────────────────────────────────
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: server
+
+      # ── Build frontend (Vite → dist/) ───────────────────────────────────────
+      - name: Build frontend
+        run: npm run build
+
+      # ── Build server (TypeScript → server/dist/) ────────────────────────────
+      - name: Build server
+        run: npm run build
+        working-directory: server
+
+      # ── Download precompiled acestep.cpp binaries ───────────────────────────
+      - name: Download acestep.cpp binaries
+        shell: bash
+        run: |
+          mkdir -p bin
+          ARCHIVE="$(basename '${{ matrix.binary_url }}')"
+          curl -fsSL '${{ matrix.binary_url }}' -o "$ARCHIVE"
+
+          # Try with --strip-components first; fall back if the archive is flat
+          if tar -tzf "$ARCHIVE" | grep -q '/'; then
+            tar -xzf "$ARCHIVE" --strip-components=1 -C bin/
+          else
+            tar -xzf "$ARCHIVE" -C bin/
+          fi
+
+          # Make all three acestep.cpp binaries executable (neural-codec is the
+          # VAE encoder binary, alongside ace-qwen3 and dit-vae)
+          chmod +x bin/ace-qwen3 bin/dit-vae bin/neural-codec 2>/dev/null || true
+          echo "── Extracted binaries ──"
+          ls -lh bin/
+
+      # ── Rebuild better-sqlite3 for Electron's Node.js ──────────────────────
+      - name: Rebuild native modules for Electron
+        run: npx @electron/rebuild --module-dir server --only better-sqlite3
+
+      # ── Package with electron-builder ───────────────────────────────────────
+      - name: Build Electron package
+        run: npm run electron:build -- ${{ matrix.platform_flag }}
+        env:
+          # Skip macOS code signing in CI (no certificate available)
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Upload build artifacts for the publish job ──────────────────────────
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-${{ matrix.os-label }}
+          path: |
+            release/**/*.dmg
+            release/**/*.AppImage
+            release/**/*.deb
+          if-no-files-found: warn
+          retention-days: 7
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Publish a GitHub Release with all platform artifacts attached.
+  # Only runs when triggered by a tag push or workflow_dispatch.
+  # ────────────────────────────────────────────────────────────────────────────
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Collect artifacts from both platform builds
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: electron-*
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: List release artifacts
+        run: find release-artifacts -type f | sort
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME:-}"
+          [[ "$TAG" == v* ]] || TAG="${{ github.event.inputs.tag || 'v0.0.1-electron' }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "ACE-Step UI ${{ steps.tag.outputs.tag }} — Desktop App"
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.tag, '-') }}
+          body: |
+            ## ACE-Step UI ${{ steps.tag.outputs.tag }} — Electron Desktop App
+
+            Native desktop application powered by [acestep.cpp](https://github.com/audiohacking/acestep.cpp) (precompiled binaries bundled — no build step required).
+
+            ### Downloads
+
+            | File | Platform |
+            |------|----------|
+            | `*.dmg` | macOS — Apple Silicon (arm64) |
+            | `*.AppImage` | Linux — x86_64 (any distro) |
+            | `*.deb` | Linux — x86_64 (Debian / Ubuntu) |
+
+            ### Notes
+
+            - **Models are not bundled.** On first launch the app starts without models; download them manually and place them in:
+              - macOS: `~/Library/Application Support/ACE-Step UI/models/`
+              - Linux: `~/.config/ACE-Step UI/models/`
+            - Generated audio is saved to `~/Music/ACEStep/`.
+            - The embedded server listens on port **3001** (localhost only).
+          files: release-artifacts/**/*
+          fail_on_unmatched_files: false
