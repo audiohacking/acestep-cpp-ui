@@ -27,8 +27,9 @@
 
 ## ⚡ Quick Start
 
-📦 Download and install a prebuilt [release](https://github.com/audiohacking/acestep-cpp-ui/releases) for your OS _(experimental)_
+📦 Download and install a [Native Release](https://github.com/audiohacking/acestep-cpp-ui/releases) for your OS _(experimental)_
 
+> Electron App with UI and acestep.cpp binaries bundled — no compiler or build step required
 > If this worked you're done 🎉 if it didn't work, keep reading how to build a local version
 
 ---
