@@ -40,10 +40,11 @@
 
 ## ⚡ Quick Start
 
-Download and install a prebuilt [release](https://github.com/audiohacking/acestep-cpp-ui/releases) for your OS _(experimental ⚠️)_
+📦 Download and install a prebuilt [release](https://github.com/audiohacking/acestep-cpp-ui/releases) for your OS _(experimental)_
 
+> If this worked you don't need to read further 🎉
 
-### Linux / macOS
+### Linux / macOS 
 ```bash
 # 1. Clone this repository
 git clone https://github.com/audiohacking/acestep-cpp-ui
