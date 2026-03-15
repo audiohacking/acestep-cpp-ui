@@ -290,6 +290,7 @@ function createLoadingWindow () {
     transparent: false,
     alwaysOnTop: true,
     title: 'ACE-Step UI — Starting',
+    icon: path.join(__dirname, 'icons', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -511,6 +512,7 @@ function createWindow () {
     minWidth: 800,
     minHeight: 600,
     title: 'ACE-Step UI',
+    icon: path.join(__dirname, 'icons', 'icon.png'),
     show: false, // reveal after content loads to avoid flash
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

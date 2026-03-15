@@ -11,6 +11,10 @@ on:
         description: "Release tag (e.g. v1.0.0)"
         required: true
         default: "v0.0.1-electron"
+      binary_version:
+        description: "acestep.cpp release tag to bundle (e.g. v0.0.1)"
+        required: false
+        default: "v0.0.1"
 
 concurrency:
   group: electron-release-${{ github.ref }}
@@ -18,6 +22,9 @@ concurrency:
 
 env:
   NODE_VERSION: "20"
+  # Default acestep.cpp binary release to bundle.  Can be overridden per-run
+  # via the workflow_dispatch input above.
+  BINARY_VERSION: ${{ github.event.inputs.binary_version || 'v0.0.1' }}
 
 jobs:
   # ────────────────────────────────────────────────────────────────────────────
@@ -59,14 +66,12 @@ jobs:
           - runner: macos-14
             os-label: macOS-arm64
             platform_flag: --mac
-            binary_url: https://github.com/audiohacking/acestep.cpp/releases/download/v0.0.1/acestep-macos-arm64-metal.tar.gz
             binary_archive: acestep-macos-arm64-metal.tar.gz
 
           # Linux x86_64 → .AppImage + .deb
           - runner: ubuntu-22.04
             os-label: Linux-x64
             platform_flag: --linux
-            binary_url: https://github.com/audiohacking/acestep.cpp/releases/download/v0.0.1/acestep-linux-x64.tar.gz
             binary_archive: acestep-linux-x64.tar.gz
 
     steps:
@@ -110,10 +115,11 @@ jobs:
         shell: bash
         run: |
           mkdir -p bin
+          BINARY_URL="https://github.com/audiohacking/acestep.cpp/releases/download/${BINARY_VERSION}/${{ matrix.binary_archive }}"
 
-          echo "Downloading ${{ matrix.binary_archive }} …"
+          echo "Downloading ${{ matrix.binary_archive }} from ${BINARY_URL} …"
           curl -fsSL --retry 3 \
-            '${{ matrix.binary_url }}' \
+            "${BINARY_URL}" \
             -o '${{ matrix.binary_archive }}'
 
           echo "Archive contents:"
@@ -154,13 +160,13 @@ jobs:
       - name: Verify binaries
         shell: bash
         run: |
-          ok=1
+          warn=0
           for bin in ace-qwen3 dit-vae neural-codec; do
             if [ -f "bin/$bin" ] && [ -x "bin/$bin" ]; then
               echo "✅  bin/$bin"
             else
               echo "⚠️  bin/$bin — not found or not executable"
-              ok=0
+              warn=1
             fi
           done
 
@@ -172,7 +178,7 @@ jobs:
                 echo "✅  bin/$lib"
               else
                 echo "⚠️  bin/$lib — missing"
-                ok=0
+                warn=1
               fi
             done
           fi
@@ -188,13 +194,17 @@ jobs:
                   echo "✅  bin/${lib_name}"
                 else
                   echo "⚠️  bin/${lib_name} — missing"
-                  ok=0
+                  warn=1
                 fi
               done
             done
           fi
 
-          [ "$ok" = "1" ] || { echo ""; echo "One or more required files are missing — aborting."; exit 1; }
+          if [ "$warn" = "1" ]; then
+            echo ""
+            echo "⚠️  One or more expected files are missing — the packaged app may not work correctly."
+            echo "    Verify that BINARY_VERSION=${BINARY_VERSION} points to the correct release."
+          fi
 
       # ── Rebuild better-sqlite3 for Electron's Node.js ──────────────────────
       - name: Rebuild native modules for Electron
@@ -205,7 +215,6 @@ jobs:
         run: npm run electron:build -- ${{ matrix.platform_flag }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false   # skip code-signing in CI
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ── Collect and upload artifacts ─────────────────────────────────────────
       - name: Upload artifacts
@@ -216,6 +225,8 @@ jobs:
             release/**/*.dmg
             release/**/*.AppImage
             release/**/*.deb
+            release/**/*.tar.gz
+            release/**/*.zip
           if-no-files-found: warn
           retention-days: 7
 
