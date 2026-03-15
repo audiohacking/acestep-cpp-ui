@@ -246,7 +246,7 @@ jobs:
         run: sudo snap install snapcraft --classic
 
       - name: Build Electron package (Linux)
-        run: npm run electron:build:linux
+        run: npm run electron:build:linux -- --publish=never
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ""   # offline / no store upload
 
