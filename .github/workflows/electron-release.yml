@@ -22,8 +22,18 @@ env:
 jobs:
   # ────────────────────────────────────────────────────────────────────────────
   # Per-platform Electron build
-  # Downloads precompiled acestep.cpp binaries, builds frontend + server,
-  # runs electron-builder to produce .dmg (macOS) or .AppImage/.deb (Linux).
+  #
+  # Linux:  The precompiled archive is a FLAT tarball — all binaries (.ace-qwen3,
+  #         .dit-vae, …) AND shared libraries (libggml*.so) live at the root
+  #         with a "./" prefix.  They are extracted together into bin/ so that
+  #         the loader finds them in the same directory at runtime.
+  #         The ELFs link against versioned sonames (libggml.so.0) but the
+  #         archive ships the unversioned names (libggml.so) — we create the
+  #         required symlinks after extraction.
+  #
+  # macOS:  Also a flat tarball.  The Metal-compiled binaries may depend on
+  #         system frameworks; DYLD_LIBRARY_PATH is set at runtime in main.js
+  #         as a safety net.
   # ────────────────────────────────────────────────────────────────────────────
   build:
     name: Electron — ${{ matrix.os-label }}
@@ -39,17 +49,19 @@ jobs:
             os-label: macOS-arm64
             platform_flag: --mac
             binary_url: https://github.com/audiohacking/acestep.cpp/releases/download/v0.0.1/acestep-macos-arm64-metal.tar.gz
+            binary_archive: acestep-macos-arm64-metal.tar.gz
 
           # Linux x86_64 → .AppImage + .deb
           - runner: ubuntu-22.04
             os-label: Linux-x64
             platform_flag: --linux
             binary_url: https://github.com/audiohacking/acestep.cpp/releases/download/v0.0.1/acestep-linux-x64.tar.gz
+            binary_archive: acestep-linux-x64.tar.gz
 
     steps:
       - uses: actions/checkout@v4
 
-      # ── Node setup ─────────────────────────────────────────────────────────
+      # ── Node setup ──────────────────────────────────────────────────────────
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -72,26 +84,86 @@ jobs:
         run: npm run build
         working-directory: server
 
-      # ── Download precompiled acestep.cpp binaries ───────────────────────────
-      - name: Download acestep.cpp binaries
+      # ── Download & extract precompiled acestep.cpp binaries ─────────────────
+      #
+      # Both archives are FLAT tarballs: every file sits directly at "./"
+      # with no subdirectory.  Extracting with "-C bin/" places everything
+      # (binaries AND shared libraries) straight into bin/.
+      #
+      # The "./" prefix in the archive is equivalent to the extraction target,
+      # so "tar -xzf archive.tar.gz -C bin/" is the correct command.
+      # "--strip-components" must NOT be used: it would strip the "./" and
+      # attempt to extract into bin/ itself which is fine, but we keep the
+      # command simple and explicit.
+      - name: Download & extract acestep.cpp binaries
         shell: bash
         run: |
           mkdir -p bin
-          ARCHIVE="$(basename '${{ matrix.binary_url }}')"
-          curl -fsSL '${{ matrix.binary_url }}' -o "$ARCHIVE"
 
-          # Try with --strip-components first; fall back if the archive is flat
-          if tar -tzf "$ARCHIVE" | grep -q '/'; then
-            tar -xzf "$ARCHIVE" --strip-components=1 -C bin/
-          else
-            tar -xzf "$ARCHIVE" -C bin/
-          fi
+          echo "Downloading ${{ matrix.binary_archive }} …"
+          curl -fsSL --retry 3 \
+            '${{ matrix.binary_url }}' \
+            -o '${{ matrix.binary_archive }}'
 
-          # Make all three acestep.cpp binaries executable (neural-codec is the
-          # VAE encoder binary, alongside ace-qwen3 and dit-vae)
-          chmod +x bin/ace-qwen3 bin/dit-vae bin/neural-codec 2>/dev/null || true
-          echo "── Extracted binaries ──"
+          echo "Archive contents:"
+          tar -tzf '${{ matrix.binary_archive }}' | head -40
+
+          echo ""
+          echo "Extracting into bin/ …"
+          tar -xzf '${{ matrix.binary_archive }}' -C bin/
+
+          echo ""
+          echo "bin/ after extraction:"
           ls -lh bin/
+
+      # ── Create versioned soname symlinks (Linux only) ───────────────────────
+      #
+      # The Linux ELFs link against libggml.so.0 / libggml-base.so.0 (sonames)
+      # but the archive ships libggml.so / libggml-base.so (unversioned names).
+      # Without the symlinks the dynamic linker cannot resolve the libraries.
+      # These symlinks are created here before packaging so that electron-builder
+      # can include them in extraResources.  The Electron main process also
+      # creates them at runtime as a fallback (e.g. during development).
+      - name: Create soname symlinks (Linux)
+        if: matrix.os-label == 'Linux-x64'
+        shell: bash
+        run: |
+          cd bin
+          for pair in "libggml.so:libggml.so.0" "libggml-base.so:libggml-base.so.0"; do
+            real="${pair%%:*}"
+            soname="${pair##*:}"
+            if [ -f "$real" ] && [ ! -e "$soname" ]; then
+              ln -sv "$real" "$soname"
+            fi
+          done
+          echo "Symlinks in bin/:"
+          ls -la | grep " -> " || echo "(none)"
+
+      # ── Verify key binaries are executable ──────────────────────────────────
+      - name: Verify binaries
+        shell: bash
+        run: |
+          ok=1
+          for bin in ace-qwen3 dit-vae neural-codec; do
+            if [ -f "bin/$bin" ] && [ -x "bin/$bin" ]; then
+              echo "✅  bin/$bin"
+            else
+              echo "⚠️  bin/$bin — not found or not executable"
+              ok=0
+            fi
+          done
+          # Also check that the shared libs are present on Linux
+          if [ '${{ matrix.os-label }}' = 'Linux-x64' ]; then
+            for lib in libggml.so libggml-base.so libggml.so.0 libggml-base.so.0; do
+              if [ -e "bin/$lib" ]; then
+                echo "✅  bin/$lib"
+              else
+                echo "⚠️  bin/$lib — missing"
+                ok=0
+              fi
+            done
+          fi
+          [ "$ok" = "1" ] || { echo ""; echo "One or more required files are missing — aborting."; exit 1; }
 
       # ── Rebuild better-sqlite3 for Electron's Node.js ──────────────────────
       - name: Rebuild native modules for Electron
@@ -101,11 +173,10 @@ jobs:
       - name: Build Electron package
         run: npm run electron:build -- ${{ matrix.platform_flag }}
         env:
-          # Skip macOS code signing in CI (no certificate available)
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          CSC_IDENTITY_AUTO_DISCOVERY: false   # skip code-signing in CI
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── Upload build artifacts for the publish job ──────────────────────────
+      # ── Collect and upload artifacts ─────────────────────────────────────────
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -119,7 +190,6 @@ jobs:
 
   # ────────────────────────────────────────────────────────────────────────────
   # Publish a GitHub Release with all platform artifacts attached.
-  # Only runs when triggered by a tag push or workflow_dispatch.
   # ────────────────────────────────────────────────────────────────────────────
   publish:
     name: Publish GitHub Release
@@ -133,7 +203,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Collect artifacts from both platform builds
       - uses: actions/download-artifact@v4
         with:
           pattern: electron-*
@@ -161,22 +230,31 @@ jobs:
           body: |
             ## ACE-Step UI ${{ steps.tag.outputs.tag }} — Electron Desktop App
 
-            Native desktop application powered by [acestep.cpp](https://github.com/audiohacking/acestep.cpp) (precompiled binaries bundled — no build step required).
+            Native desktop application with embedded server and precompiled
+            [acestep.cpp](https://github.com/audiohacking/acestep.cpp) binaries bundled — no compiler or build step required.
 
             ### Downloads
 
             | File | Platform |
             |------|----------|
-            | `*.dmg` | macOS — Apple Silicon (arm64) |
-            | `*.AppImage` | Linux — x86_64 (any distro) |
-            | `*.deb` | Linux — x86_64 (Debian / Ubuntu) |
+            | `*.dmg`      | macOS — Apple Silicon (arm64) |
+            | `*.AppImage` | Linux — x86_64 (any distro, single executable) |
+            | `*.deb`      | Linux — x86_64 (Debian / Ubuntu) |
 
-            ### Notes
+            ### First run
 
-            - **Models are not bundled.** On first launch the app starts without models; download them manually and place them in:
-              - macOS: `~/Library/Application Support/ACE-Step UI/models/`
-              - Linux: `~/.config/ACE-Step UI/models/`
-            - Generated audio is saved to `~/Music/ACEStep/`.
-            - The embedded server listens on port **3001** (localhost only).
+            On first launch the app will offer to download the default Q8_0 model set
+            (~8 GB total) from HuggingFace automatically.  You can also skip and
+            copy models manually to:
+            - **macOS** `~/Library/Application Support/ACE-Step UI/models/`
+            - **Linux** `~/.config/ACE-Step UI/models/`
+
+            Generated audio is saved to `~/Music/ACEStep/`.
+
+            ### Linux notes
+
+            The AppImage bundles the GGML shared libraries alongside the binaries.
+            If you see *"libggml.so.0: cannot open shared object file"* errors,
+            ensure the AppImage has execute permission (`chmod +x *.AppImage`).
           files: release-artifacts/**/*
           fail_on_unmatched_files: false

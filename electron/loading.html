@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ACE-Step UI — Starting</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #09090b;
+      color: #f4f4f5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+      /* Allow dragging the frameless window from anywhere */
+      -webkit-app-region: drag;
+    }
+
+    .logo {
+      font-size: 2rem;
+      margin-bottom: 0.25rem;
+    }
+
+    h1 {
+      font-size: 1.375rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #ec4899 0%, #a855f7 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.25rem;
+    }
+
+    .tagline {
+      font-size: 0.8125rem;
+      color: #71717a;
+      margin-bottom: 2.5rem;
+      letter-spacing: 0.02em;
+    }
+
+    /* ── spinner ── */
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 2.5px solid #27272a;
+      border-top-color: #ec4899;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+      margin-bottom: 1.5rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── status text ── */
+    #status {
+      font-size: 0.8125rem;
+      color: #a1a1aa;
+      text-align: center;
+      min-height: 1.25em;
+      margin-bottom: 1rem;
+      max-width: 380px;
+      line-height: 1.5;
+    }
+
+    /* ── progress bar ── */
+    .progress-wrap {
+      width: 360px;
+      height: 5px;
+      background: #18181b;
+      border-radius: 3px;
+      overflow: hidden;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    .progress-wrap.visible { opacity: 1; }
+
+    #progressBar {
+      height: 100%;
+      background: linear-gradient(90deg, #ec4899 0%, #a855f7 100%);
+      border-radius: 3px;
+      width: 0%;
+      transition: width 0.25s ease;
+    }
+
+    #progressLabel {
+      margin-top: 0.5rem;
+      font-size: 0.75rem;
+      color: #52525b;
+      min-height: 1.1em;
+      text-align: right;
+      width: 360px;
+    }
+  </style>
+</head>
+<body>
+  <div class="spinner"></div>
+  <div class="logo">🎵</div>
+  <h1>ACE-Step UI</h1>
+  <p class="tagline">Local AI Music Generator</p>
+
+  <p id="status">Initializing…</p>
+
+  <div class="progress-wrap" id="progressWrap">
+    <div id="progressBar"></div>
+  </div>
+  <p id="progressLabel"></p>
+
+  <script>
+    const statusEl  = document.getElementById('status');
+    const barEl     = document.getElementById('progressBar');
+    const wrapEl    = document.getElementById('progressWrap');
+    const labelEl   = document.getElementById('progressLabel');
+
+    function applyStatus ({ msg, pct, label }) {
+      if (msg  !== undefined) statusEl.textContent = msg;
+      if (pct !== undefined && pct >= 0) {
+        wrapEl.classList.add('visible');
+        barEl.style.width = Math.min(100, pct) + '%';
+      }
+      if (label !== undefined) labelEl.textContent = label;
+    }
+
+    // Receive IPC events sent by the main process via the preload bridge
+    if (window.setupAPI && window.setupAPI.onStatus) {
+      window.setupAPI.onStatus(applyStatus);
+    }
+  </script>
+</body>
+</html>

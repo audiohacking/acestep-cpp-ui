@@ -37,6 +37,7 @@
   "build": {
     "appId": "io.audiohacking.acestep-cpp-ui",
     "productName": "ACE-Step UI",
+    "npmRebuild": false,
     "directories": {
       "output": "release"
     },
