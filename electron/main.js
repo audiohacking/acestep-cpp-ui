@@ -5,11 +5,12 @@
  * ─────────────────
  * 1. ensureDirs()            create user-space directories
  * 2. setupLibraryPaths()     set LD_LIBRARY_PATH (Linux) / DYLD_LIBRARY_PATH
- *                            (macOS) to BIN_DIR so that ace-lm / ace-synth
- *                            child processes find their shared libraries.
- *                            Linux ELFs have a hardcoded RUNPATH to the CI
- *                            build tree; macOS dylibs use versioned install
- *                            names — both need the env var override.
+ *                            (macOS) / PATH (Windows) to BIN_DIR so that
+ *                            ace-lm / ace-synth child processes find their
+ *                            shared libraries.  Linux ELFs have a hardcoded
+ *                            RUNPATH to the CI build tree; macOS dylibs use
+ *                            versioned install names; Windows DLLs are found
+ *                            via PATH — all need the env var override.
  * 3. fixSonameLinks()        Linux only: archive ships libggml.so /
  *                            libggml-base.so (unversioned) but ELFs link
  *                            against libggml.so.0 / libggml-base.so.0 —
@@ -138,6 +139,11 @@ function ensureDirs () {
  *   the bundled libraries are found regardless of what paths were baked in
  *   at compile time.  DYLD_FALLBACK_LIBRARY_PATH is set as an additional
  *   safety net for transitive dylib-to-dylib dependencies.
+ *
+ * Windows: DLLs must be in the same directory as the executable or in a
+ *   directory listed in PATH.  Since both the .exe binaries and the bundled
+ *   .dll files all live in BIN_DIR, we prepend BIN_DIR to PATH so that every
+ *   child process spawned by the Express server can resolve the DLLs.
  */
 function setupLibraryPaths () {
   if (!fs.existsSync(BIN_DIR)) return;
@@ -151,6 +157,9 @@ function setupLibraryPaths () {
     // Also set DYLD_FALLBACK_LIBRARY_PATH as an extra safety net
     const prev2 = process.env.DYLD_FALLBACK_LIBRARY_PATH || '';
     process.env.DYLD_FALLBACK_LIBRARY_PATH = prev2 ? `${BIN_DIR}:${prev2}` : BIN_DIR;
+  } else if (process.platform === 'win32') {
+    const prev = process.env.PATH || '';
+    process.env.PATH = prev ? `${BIN_DIR};${prev}` : BIN_DIR;
   }
 }
 
