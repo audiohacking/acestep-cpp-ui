@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "cd server && npx tsx src/index.ts & npm run dev",
+    "download:bins": "bash download-bins.sh",
     "electron:dev": "electron .",
     "electron:build": "electron-builder",
     "electron:build:mac": "electron-builder --mac",

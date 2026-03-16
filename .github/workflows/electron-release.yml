@@ -68,17 +68,9 @@ jobs:
         run: npm run build
         working-directory: server
 
-      - name: Download & extract acestep.cpp binaries
+      - name: Download pre-built acestep.cpp binaries
         shell: bash
-        run: |
-          ARCHIVE="acestep-macos-arm64-metal.tar.gz"
-          URL="https://github.com/audiohacking/acestep.cpp/releases/download/${BINARY_VERSION}/${ARCHIVE}"
-          echo "Downloading ${ARCHIVE} from ${URL} …"
-          curl -fsSL --retry 3 "${URL}" -o "${ARCHIVE}"
-          mkdir -p bin
-          tar -xzf "${ARCHIVE}" -C bin/
-          echo "bin/ contents:"
-          ls -lh bin/
+        run: bash download-bins.sh --version "${BINARY_VERSION}"
 
       - name: Verify macOS dylibs
         shell: bash
@@ -205,33 +197,9 @@ jobs:
         run: npm run build
         working-directory: server
 
-      - name: Download & extract acestep.cpp binaries
+      - name: Download pre-built acestep.cpp binaries
         shell: bash
-        run: |
-          ARCHIVE="acestep-linux-x64.tar.gz"
-          URL="https://github.com/audiohacking/acestep.cpp/releases/download/${BINARY_VERSION}/${ARCHIVE}"
-          echo "Downloading ${ARCHIVE} from ${URL} …"
-          curl -fsSL --retry 3 "${URL}" -o "${ARCHIVE}"
-          mkdir -p bin
-          tar -xzf "${ARCHIVE}" -C bin/
-          echo "bin/ contents:"
-          ls -lh bin/
-
-      - name: Create versioned soname symlinks
-        shell: bash
-        run: |
-          # ELFs link against libggml.so.0 / libggml-base.so.0 (sonames) but
-          # the archive ships the unversioned names.  Create the missing links.
-          cd bin
-          for pair in "libggml.so:libggml.so.0" "libggml-base.so:libggml-base.so.0"; do
-            real="${pair%%:*}"
-            soname="${pair##*:}"
-            if [ -f "$real" ] && [ ! -e "$soname" ]; then
-              ln -sv "$real" "$soname"
-            fi
-          done
-          echo "Symlinks:"
-          ls -la | grep " -> " || echo "(none)"
+        run: bash download-bins.sh --version "${BINARY_VERSION}"
 
       - name: Verify Linux binaries & libraries
         shell: bash

@@ -36,23 +36,54 @@ elif [ -n "${ACESTEP_BIN:-}" ] && [ -x "$ACESTEP_BIN" ]; then
   echo "acestep-generate: $ACESTEP_BIN ✓"
 else
   echo ""
-  echo "Building acestep.cpp for your hardware (detects GPU automatically)..."
-  echo "  Repo:   ${ACESTEP_CPP_REPO:-https://github.com/audiohacking/acestep.cpp.git}"
-  [ -n "${ACESTEP_CPP_BRANCH:-}" ] && echo "  Branch: $ACESTEP_CPP_BRANCH"
+  echo "No acestep.cpp binaries found in $ACESTEP_BIN_DIR/."
   echo ""
-  bash build.sh || {
-    echo ""
-    echo "  Automatic build failed. You can build manually:"
-    echo "    git clone https://github.com/audiohacking/acestep.cpp"
-    echo "    cmake -S acestep.cpp -B acestep.cpp/build -DCMAKE_BUILD_TYPE=Release"
-    echo "    cmake --build acestep.cpp/build --parallel"
-    echo "  Then set ACESTEP_BIN_DIR=$(pwd)/bin in .env"
-    echo ""
-    echo "  To use a custom fork or branch, set before running setup.sh:"
-    echo "    ACESTEP_CPP_REPO=https://github.com/your-fork/acestep.cpp.git ./setup.sh"
-    echo "    ACESTEP_CPP_BRANCH=my-branch ./setup.sh"
-    echo ""
-  }
+  echo "Choose how to obtain them:"
+  echo "  1) Download pre-built binaries (recommended — fast, no compiler required)"
+  echo "  2) Build from source          (requires cmake + git; supports any GPU)"
+  echo "  3) Skip                       (set ACESTEP_BIN_DIR manually and re-run)"
+  echo ""
+  printf "Enter choice [1/2/3, default=1]: "
+  read -r BIN_CHOICE < /dev/tty || BIN_CHOICE="1"
+  BIN_CHOICE="${BIN_CHOICE:-1}"
+
+  case "$BIN_CHOICE" in
+    1)
+      echo ""
+      echo "Downloading pre-built binaries..."
+      bash download-bins.sh || {
+        echo ""
+        echo "  Download failed. Try building from source instead:"
+        echo "    bash build.sh"
+        echo "  Or download manually from https://github.com/audiohacking/acestep.cpp/releases"
+        echo ""
+      }
+      ;;
+    2)
+      echo ""
+      echo "Building acestep.cpp for your hardware (detects GPU automatically)..."
+      echo "  Repo:   ${ACESTEP_CPP_REPO:-https://github.com/audiohacking/acestep.cpp.git}"
+      [ -n "${ACESTEP_CPP_BRANCH:-}" ] && echo "  Branch: $ACESTEP_CPP_BRANCH"
+      echo ""
+      bash build.sh || {
+        echo ""
+        echo "  Automatic build failed. You can build manually:"
+        echo "    git clone https://github.com/audiohacking/acestep.cpp"
+        echo "    cmake -S acestep.cpp -B acestep.cpp/build -DCMAKE_BUILD_TYPE=Release"
+        echo "    cmake --build acestep.cpp/build --parallel"
+        echo "  Then set ACESTEP_BIN_DIR=$(pwd)/bin in .env"
+        echo ""
+        echo "  Or download pre-built binaries: bash download-bins.sh"
+        echo ""
+      }
+      ;;
+    *)
+      echo ""
+      echo "Skipping binary setup."
+      echo "  Run './download-bins.sh' or './build.sh' when ready."
+      echo ""
+      ;;
+  esac
 fi
 
 # ── Download GGUF models ─────────────────────────────────────────────────────

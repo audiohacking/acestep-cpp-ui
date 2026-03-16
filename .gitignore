@@ -102,3 +102,7 @@ logs/
 release/
 dist-electron/
 
+# Pre-built binaries (downloaded by download-bins.sh — not committed)
+bin/
+acestep.cpp/
+
