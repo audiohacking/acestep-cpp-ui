@@ -278,11 +278,103 @@ jobs:
           retention-days: 7
 
   # ────────────────────────────────────────────────────────────────────────────
+  # Windows — x86_64 → ACE-Step UI-*.exe (NSIS installer)
+  #
+  # The Windows binary archive ships .exe binaries and .dll files in a flat
+  # zip archive.  All files are extracted directly into bin/ so that both the
+  # executables and the DLLs sit in the same directory.  At runtime,
+  # electron/main.js prepends BIN_DIR to PATH so that spawned child processes
+  # can resolve the bundled DLLs without any system-wide installation.
+  # ────────────────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build — Windows x64
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Install server dependencies
+        run: npm install
+        working-directory: server
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build server
+        run: npm run build
+        working-directory: server
+
+      - name: Download & extract acestep.cpp Windows binaries
+        shell: pwsh
+        run: |
+          $archive = "acestep-windows-x64.zip"
+          $url = "https://github.com/audiohacking/acestep.cpp/releases/download/$env:BINARY_VERSION/$archive"
+          Write-Host "Downloading $archive from $url ..."
+          Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
+          New-Item -ItemType Directory -Force -Path bin | Out-Null
+          Expand-Archive -Path $archive -DestinationPath bin -Force
+          Write-Host "bin/ contents:"
+          Get-ChildItem bin | Format-Table Name, Length
+
+      - name: Verify Windows binaries & DLLs
+        shell: pwsh
+        run: |
+          $warn = 0
+          foreach ($bin in @("ace-lm.exe", "ace-synth.exe", "neural-codec.exe")) {
+            if (Test-Path "bin\$bin") { Write-Host "OK  bin\$bin" }
+            else { Write-Warning "MISSING  bin\$bin"; $warn++ }
+          }
+          $dlls = Get-ChildItem bin -Filter "*.dll"
+          if ($dlls.Count -gt 0) {
+            Write-Host "OK  $($dlls.Count) DLL(s) found in bin\"
+          } else {
+            Write-Warning "No DLLs found in bin\ — verify BINARY_VERSION=$env:BINARY_VERSION"
+            $warn++
+          }
+          if ($warn -gt 0) { Write-Warning "Some files missing — verify BINARY_VERSION=$env:BINARY_VERSION" }
+
+      - name: Rebuild native modules for Electron
+        run: npx @electron/rebuild --module-dir server --only better-sqlite3
+
+      - name: Resolve release tag
+        id: tag
+        shell: pwsh
+        run: |
+          $tag = "$env:GITHUB_REF_NAME"
+          if (-not $tag.StartsWith("v")) {
+            $tag = "${{ github.event.inputs.tag || 'v0.0.2-electron' }}"
+          }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Build Electron package (Windows)
+        run: npm run electron:build:win -- --publish=never
+        env:
+          npm_package_version: ${{ steps.tag.outputs.tag }}
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-windows-x64
+          path: release/**/*.exe
+          if-no-files-found: warn
+          retention-days: 7
+
+  # ────────────────────────────────────────────────────────────────────────────
   # Publish a GitHub Release with all platform artifacts attached.
   # ────────────────────────────────────────────────────────────────────────────
   publish:
     name: Publish GitHub Release
-    needs: [build-mac, build-linux]
+    needs: [build-mac, build-linux, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -341,6 +433,7 @@ jobs:
             | `*.dmg`      | macOS — Apple Silicon (arm64) |
             | `*.AppImage` | Linux — x86_64 (portable, any distro) |
             | `*.snap`     | Linux — x86_64 (Snap Store / snapd) |
+            | `*.exe`      | Windows — x86_64 (NSIS installer) |
 
           
       - name: Upload to release
@@ -352,4 +445,5 @@ jobs:
             release-artifacts/*.snap \
             release-artifacts/*.AppImage \
             release-artifacts/*.dmg \
+            release-artifacts/*.exe \
             --clobber
