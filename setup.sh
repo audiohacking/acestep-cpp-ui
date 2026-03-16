@@ -1,5 +1,11 @@
 #!/bin/bash
 # ACE-Step UI Setup Script (acestep-cpp edition)
+#
+# Non-interactive / CI usage:
+#   DOWNLOAD_BINS=1 ./setup.sh     — always download pre-built binaries (no prompt)
+#   BUILD_FROM_SOURCE=1 ./setup.sh — always build from source (no prompt)
+#
+# When stdin is not a terminal the script behaves as DOWNLOAD_BINS=1 automatically.
 set -e
 
 echo "=================================="
@@ -37,28 +43,28 @@ elif [ -n "${ACESTEP_BIN:-}" ] && [ -x "$ACESTEP_BIN" ]; then
 else
   echo ""
   echo "No acestep.cpp binaries found in $ACESTEP_BIN_DIR/."
-  echo ""
-  echo "Choose how to obtain them:"
-  echo "  1) Download pre-built binaries (recommended — fast, no compiler required)"
-  echo "  2) Build from source          (requires cmake + git; supports any GPU)"
-  echo "  3) Skip                       (set ACESTEP_BIN_DIR manually and re-run)"
-  echo ""
-  printf "Enter choice [1/2/3, default=1]: "
-  read -r BIN_CHOICE < /dev/tty || BIN_CHOICE="1"
-  BIN_CHOICE="${BIN_CHOICE:-1}"
+
+  # ── Determine mode: non-interactive vs interactive ──────────────────────────
+  # Respect explicit env-var overrides first.  If neither is set, check whether
+  # stdin is a terminal (TTY).  In CI / piped sessions stdin is not a TTY, so
+  # we automatically download pre-built binaries without prompting.
+  if [ "${BUILD_FROM_SOURCE:-0}" = "1" ]; then
+    BIN_CHOICE="2"
+  elif [ "${DOWNLOAD_BINS:-0}" = "1" ] || [ ! -t 0 ]; then
+    BIN_CHOICE="1"
+  else
+    echo ""
+    echo "Choose how to obtain them:"
+    echo "  1) Download pre-built binaries (recommended — fast, no compiler required)"
+    echo "  2) Build from source          (requires cmake + git; supports any GPU)"
+    echo "  3) Skip                       (set ACESTEP_BIN_DIR manually and re-run)"
+    echo ""
+    printf "Enter choice [1/2/3, default=1]: "
+    read -r BIN_CHOICE < /dev/tty || true
+    BIN_CHOICE="${BIN_CHOICE:-1}"
+  fi
 
   case "$BIN_CHOICE" in
-    1)
-      echo ""
-      echo "Downloading pre-built binaries..."
-      bash download-bins.sh || {
-        echo ""
-        echo "  Download failed. Try building from source instead:"
-        echo "    bash build.sh"
-        echo "  Or download manually from https://github.com/audiohacking/acestep.cpp/releases"
-        echo ""
-      }
-      ;;
     2)
       echo ""
       echo "Building acestep.cpp for your hardware (detects GPU automatically)..."
@@ -77,11 +83,23 @@ else
         echo ""
       }
       ;;
-    *)
+    3)
       echo ""
       echo "Skipping binary setup."
       echo "  Run './download-bins.sh' or './build.sh' when ready."
       echo ""
+      ;;
+    *)
+      # Default (1) and any unrecognised input: download pre-built binaries.
+      echo ""
+      echo "Downloading pre-built binaries..."
+      bash download-bins.sh || {
+        echo ""
+        echo "  Download failed. Try building from source instead:"
+        echo "    bash build.sh"
+        echo "  Or download manually from https://github.com/audiohacking/acestep.cpp/releases"
+        echo ""
+      }
       ;;
   esac
 fi
