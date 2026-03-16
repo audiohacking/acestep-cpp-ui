@@ -30,7 +30,7 @@ fi
 
 # ── Build acestep.cpp if binaries are not present ────────────────────────────
 ACESTEP_BIN_DIR="${ACESTEP_BIN_DIR:-bin}"
-if [ -x "$ACESTEP_BIN_DIR/ace-qwen3" ] && [ -x "$ACESTEP_BIN_DIR/dit-vae" ]; then
+if [ -x "$ACESTEP_BIN_DIR/ace-lm" ] && [ -x "$ACESTEP_BIN_DIR/ace-synth" ]; then
   echo "acestep.cpp binaries: $ACESTEP_BIN_DIR/ ✓"
 elif [ -n "${ACESTEP_BIN:-}" ] && [ -x "$ACESTEP_BIN" ]; then
   echo "acestep-generate: $ACESTEP_BIN ✓"

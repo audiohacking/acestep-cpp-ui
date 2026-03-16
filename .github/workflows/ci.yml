@@ -131,7 +131,7 @@ jobs:
         shell: bash
         run: |
           ALL_OK=1
-          for bin in ace-qwen3 dit-vae neural-codec; do
+          for bin in ace-lm ace-synth neural-codec; do
             if [ -x "bin/$bin" ]; then
               echo "✅ bin/$bin"
             else

@@ -781,7 +781,7 @@ router.post('/format', authMiddleware, async (req: AuthenticatedRequest, res: Re
     }
 
     // ── Spawn mode ────────────────────────────────────────────────────────
-    // ace-qwen3 is used for format/enhance — pass a request JSON with autogen enabled
+    // ace-lm is used for format/enhance — pass a request JSON with autogen enabled
     if (config.acestep.lmBin && config.acestep.lmModel) {
       const { writeFile: wf, mkdir: mkd, rm: rmf } = await import('fs/promises');
       const { tmpdir } = await import('os');

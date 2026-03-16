@@ -23,7 +23,7 @@ if not exist "server\node_modules" (
 )
 
 REM Binary auto-detection hint
-if exist "bin\ace-qwen3.exe" (
+if exist "bin\ace-lm.exe" (
     echo acestep.cpp binaries: bin\ OK
 ) else (
     echo Note: No acestep.cpp binaries found in bin\

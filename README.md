@@ -116,8 +116,8 @@ build.bat
 | `--bin DIR` | Custom binary output directory (default: `./bin`) |
 
 After a successful build, three binaries are installed to `./bin/`:
-- `ace-qwen3` — text encoder
-- `dit-vae` — diffusion + VAE decoder
+- `ace-lm` — text encoder
+- `ace-synth` — diffusion + VAE decoder
 - `neural-codec` — audio codec
 
 ### Step 3: Download GGUF models
@@ -246,8 +246,8 @@ MODELS_DIR=./models
 
 # ── acestep-cpp binaries — auto-detected from ./bin/ after ./build.sh ─────────
 # Override only if your binaries live outside ./bin/:
-# ACE_QWEN3_BIN=/path/to/ace-qwen3
-# DIT_VAE_BIN=/path/to/dit-vae
+# ACE_LM_BIN=/path/to/ace-lm
+# ACE_SYNTH_BIN=/path/to/ace-synth
 # ACESTEP_MODEL=/path/to/models/acestep-v15-turbo-Q8_0.gguf  # override DiT model
 
 # Mode 2 (advanced): connect to a separately running acestep-cpp HTTP server

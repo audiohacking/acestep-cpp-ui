@@ -1,8 +1,8 @@
 /**
  * acestep.ts — Music generation service
  *
- * Primary mode:  spawn `ace-qwen3` (LLM) + `dit-vae` (synthesis) binaries directly
- *                (auto-detected from bin/ or set ACE_QWEN3_BIN / DIT_VAE_BIN in .env)
+ * Primary mode:  spawn `ace-lm` (LLM) + `ace-synth` (synthesis) binaries directly
+ *                (auto-detected from bin/ or set ACE_LM_BIN / ACE_SYNTH_BIN in .env)
  *
  * Fallback mode: HTTP calls to a running acestep-cpp server
  *                (set ACESTEP_API_URL in .env when spawn mode binaries are not found)
@@ -129,7 +129,7 @@ interface ActiveJob {
   queuePosition?: number;
   progress?: number;
   stage?: string;
-  /** All raw lines emitted by ace-qwen3 / dit-vae (stdout + stderr), in order. */
+  /** All raw lines emitted by ace-lm / ace-synth (stdout + stderr), in order. */
   logs: string[];
 }
 
@@ -147,15 +147,15 @@ let isProcessingQueue = false;
  * Returns true when the spawn-mode binaries satisfy the requirements for
  * the given generation parameters.
  *
- * - Cover/repaint/passthrough (sourceAudioUrl or audioCodes): only dit-vae is needed;
- *   ace-qwen3 is skipped because the audio is derived from the source audio or codes.
- * - Text-to-music: both ace-qwen3 (LLM) and dit-vae (synthesis) are required.
+ * - Cover/repaint/passthrough (sourceAudioUrl or audioCodes): only ace-synth is needed;
+ *   ace-lm is skipped because the audio is derived from the source audio or codes.
+ * - Text-to-music: both ace-lm (LLM) and ace-synth (synthesis) are required.
  */
 function useSpawnMode(params?: Pick<GenerationParams, 'sourceAudioUrl' | 'audioCodes'>): boolean {
   if (!config.acestep.ditVaeBin) return false;
-  // Cover / repaint / passthrough: only dit-vae is needed — no LLM step
+  // Cover / repaint / passthrough: only ace-synth is needed — no LLM step
   if (params?.sourceAudioUrl || params?.audioCodes) return true;
-  // Text-to-music: need ace-qwen3 too
+  // Text-to-music: need ace-lm too
   return Boolean(config.acestep.lmBin);
 }
 
@@ -269,19 +269,19 @@ function resolveAudioPath(audioUrl: string): string {
 
 // ---------------------------------------------------------------------------
 // Spawn mode: run these step.cpp binaries in a two-step pipeline
-//   Step 1: ace-qwen3  — LLM generates lyrics + audio codes from caption
-//   Step 2: dit-vae    — DiT + VAE synthesises stereo 48 kHz WAV
+//   Step 1: ace-lm  — LLM generates lyrics + audio codes from caption
+//   Step 2: ace-synth    — DiT + VAE synthesises stereo 48 kHz WAV
 //
 // The binaries communicate via a JSON request file placed in a per-job
 // temporary directory:
-//   <tmpDir>/request.json  → ace-qwen3 → <tmpDir>/request0.json
-//   <tmpDir>/request0.json → dit-vae   → <tmpDir>/request00.wav
+//   <tmpDir>/request.json  → ace-lm → <tmpDir>/request0.json
+//   <tmpDir>/request0.json → ace-synth   → <tmpDir>/request00.wav
 // ---------------------------------------------------------------------------
 
 /**
  * Parse a space-separated list of extra CLI arguments from an env variable.
  * Supports simple quoting: "hello world" is treated as a single argument.
- * Example: ACE_QWEN3_EXTRA_ARGS="--threads 4" → ['--threads', '4']
+ * Example: ACE_LM_EXTRA_ARGS="--threads 4" → ['--threads', '4']
  */
 function parseExtraArgs(envVar: string | undefined): string[] {
   if (!envVar?.trim()) return [];
@@ -372,39 +372,39 @@ function runBinary(
 // Live progress parsing — translates binary stderr lines into job.stage /
 // job.progress updates that the polling API can return to the frontend.
 //
-// ace-qwen3 progress lines (all on stderr):
+// ace-lm progress lines (all on stderr):
 //   [Phase1] step 100, 1 active, 19.0 tok/s   — lyrics LM decode
 //   [Phase1] Decode 15871ms                    — Phase1 complete
 //   [Phase2] max_tokens: 800, …               — captures audio-codes budget
 //   [Decode] step 50, 1 active, 51 total codes, 20.1 tok/s — audio LM decode
 //
-// dit-vae progress lines (all on stderr):
+// ace-synth progress lines (all on stderr):
 //   [DiT] Starting: T=…, steps=8, …           — captures DiT step count
 //   [DiT] step 1/8 t=1.000                    — DiT diffusion step N/M
 //   [DiT] Total generation: …                 — DiT complete
 //   [VAE] Tiled decode: 28 tiles …            — VAE starting
 //   [VAE] Tiled decode done: 28 tiles → …    — VAE complete
 //
-// Progress scale:  0–50% ace-qwen3 | 50–100% dit-vae
+// Progress scale:  0–50% ace-lm | 50–100% ace-synth
 // ---------------------------------------------------------------------------
 
 // Progress budget across the two-binary pipeline (must sum to 100):
-//   0–30%   ace-qwen3 Phase1  (lyrics LM decode — step count varies, ~200–400)
-//  30–50%   ace-qwen3 Phase2  (audio-codes LM decode)
-//  50–85%   dit-vae DiT       (diffusion steps — exact N/M known at runtime)
-//  85–100%  dit-vae VAE       (tiled audio decode)
+//   0–30%   ace-lm Phase1  (lyrics LM decode — step count varies, ~200–400)
+//  30–50%   ace-lm Phase2  (audio-codes LM decode)
+//  50–85%   ace-synth DiT       (diffusion steps — exact N/M known at runtime)
+//  85–100%  ace-synth VAE       (tiled audio decode)
 const PROGRESS_LM_PHASE1_MAX   = 30;  // % at end of Phase1
-const PROGRESS_LM_PHASE2_END   = 50;  // % at end of Phase2 (= start of dit-vae)
+const PROGRESS_LM_PHASE2_END   = 50;  // % at end of Phase2 (= start of ace-synth)
 const PROGRESS_DIT_END         = 85;  // % at end of DiT diffusion
 const PROGRESS_VAE_END         = 98;  // % at end of VAE decode (100 set on job success)
 
 /**
- * Returns an onLine callback for ace-qwen3 stderr that updates job.stage and
+ * Returns an onLine callback for ace-lm stderr that updates job.stage and
  * job.progress as the LM pipeline progresses (contributes 0–50% overall).
  */
 function makeLmProgressHandler(job: ActiveJob): (line: string) => void {
   let phase2MaxTokens = 800;
-  // Phase1 step ceiling: ace-qwen3 typically produces 200–350 lyrics tokens.
+  // Phase1 step ceiling: ace-lm typically produces 200–350 lyrics tokens.
   // 400 is a generous upper bound so the bar reaches ~28% by the end of Phase1.
   const PHASE1_STEP_CEIL = 400;
 
@@ -444,12 +444,12 @@ function makeLmProgressHandler(job: ActiveJob): (line: string) => void {
       return;
     }
     // Any unrecognized line — log it so binary errors/warnings are always visible
-    console.log(`[ace-qwen3] ${line}`);
+    console.log(`[ace-lm] ${line}`);
   };
 }
 
 /**
- * Returns an onLine callback for dit-vae stderr that updates job.stage and
+ * Returns an onLine callback for ace-synth stderr that updates job.stage and
  * job.progress as the DiT+VAE pipeline progresses (contributes 50–100% overall).
  */
 function makeDitVaeProgressHandler(job: ActiveJob): (line: string) => void {
@@ -496,7 +496,7 @@ function makeDitVaeProgressHandler(job: ActiveJob): (line: string) => void {
       return;
     }
     // Any unrecognized line — log it so binary errors/warnings are always visible
-    console.log(`[dit-vae] ${line}`);
+    console.log(`[ace-synth] ${line}`);
   };
 }
 
@@ -520,7 +520,7 @@ async function runViaSpawn(
   // Passthrough: taskType explicitly set, or audio codes provided without
   // a source audio file (legacy callers that omit the taskType field).
   const isPassthru  = taskType === 'passthrough' || Boolean(params.audioCodes && !params.sourceAudioUrl);
-  // LLM (ace-qwen3) is only needed for plain text-to-music generation.
+  // LLM (ace-lm) is only needed for plain text-to-music generation.
   // Cover, repaint, lego, and passthrough all skip it.
   const skipLm      = isCover || isRepaint || isLego || isPassthru;
 
@@ -542,7 +542,7 @@ async function runViaSpawn(
 
   try {
     // ── Build request.json ─────────────────────────────────────────────────
-    // The JSON file is read by ace-qwen3 (text2music) or dit-vae directly
+    // The JSON file is read by ace-lm (text2music) or ace-synth directly
     // (cover / repaint / passthrough).  Only include the fields each binary
     // actually understands so the format stays clean and predictable.
     const caption = params.style || 'pop music';
@@ -552,7 +552,7 @@ async function runViaSpawn(
     // skips lyrics generation (as documented in the acestep.cpp README).
     const lyrics  = params.instrumental ? '[Instrumental]' : (params.lyrics || '');
 
-    // Fields common to all modes (understood by both ace-qwen3 and dit-vae)
+    // Fields common to all modes (understood by both ace-lm and ace-synth)
     const requestJson: Record<string, unknown> = {
       caption:         prompt,
       lyrics,
@@ -569,8 +569,8 @@ async function runViaSpawn(
     if (params.timeSignature)                   requestJson.timesignature = params.timeSignature;
 
     if (skipLm) {
-      // ── Cover / repaint / lego / passthrough: ace-qwen3 is skipped ──────
-      // Add only the mode-specific fields that dit-vae cares about.
+      // ── Cover / repaint / lego / passthrough: ace-lm is skipped ──────
+      // Add only the mode-specific fields that ace-synth cares about.
       if (isPassthru) {
         if (!params.audioCodes) {
           // Passthrough requires pre-computed codes — fail early with a clear message
@@ -605,11 +605,11 @@ async function runViaSpawn(
         requestJson.inference_steps = 50;
         requestJson.guidance_scale  = 7.0;
         // shift=1.0 is a hard requirement for lego (the spec example always uses 1.0;
-        // using the normal default of 3.0 causes dit-vae to reject the request).
+        // using the normal default of 3.0 causes ace-synth to reject the request).
         requestJson.shift = 1.0;
       }
     } else {
-      // ── Text-to-music: include LM parameters for ace-qwen3 ──────────────
+      // ── Text-to-music: include LM parameters for ace-lm ──────────────
       requestJson.vocal_language     = params.vocalLanguage    || 'unknown';
       requestJson.lm_temperature     = params.lmTemperature    ?? 0.85;
       requestJson.lm_cfg_scale       = params.lmCfgScale       ?? 2.0;
@@ -619,7 +619,7 @@ async function runViaSpawn(
       requestJson.use_cot_caption    = params.useCotCaption    ?? true;
 
       // Reference audio for style-guided text-to-music generation.
-      // When the user selects a reference track, pass it to dit-vae via the
+      // When the user selects a reference track, pass it to ace-synth via the
       // request JSON so the binary can condition the synthesis on that audio.
       if (params.referenceAudioUrl) {
         const refAudioPath = resolveAudioPath(params.referenceAudioUrl);
@@ -635,10 +635,10 @@ async function runViaSpawn(
     job.logs.push(`=== Job ${jobId} started — mode: ${taskType} ===`);
     job.logs.push(`Request JSON: ${JSON.stringify(requestJson, null, 2)}`);
 
-    // ── Step 1: ace-qwen3 — LLM (lyrics + audio codes) ────────────────────
+    // ── Step 1: ace-lm — LLM (lyrics + audio codes) ────────────────────
     // Skipped when:
-    //   • taskType is cover / audio2audio / repaint — dit-vae derives tokens
-    //     directly from the source audio; running ace-qwen3 is not needed
+    //   • taskType is cover / audio2audio / repaint — ace-synth derives tokens
+    //     directly from the source audio; running ace-lm is not needed
     //   • taskType is passthrough — audio codes are already provided
     let enrichedPaths: string[] = [];
 
@@ -653,14 +653,14 @@ async function runViaSpawn(
 
       const batchSize = Math.min(Math.max(params.batchSize ?? 1, 1), 8);
       if (batchSize > 1) lmArgs.push('--batch', String(batchSize));
-      lmArgs.push(...parseExtraArgs(process.env.ACE_QWEN3_EXTRA_ARGS));
+      lmArgs.push(...parseExtraArgs(process.env.ACE_LM_EXTRA_ARGS));
 
       const lmCmd = `${lmBin} ${lmArgs.join(' ')}`;
-      console.log(`[Job ${jobId}] Running ace-qwen3:\n  ${lmCmd}`);
-      job.logs.push(`\n--- Running ace-qwen3 ---\n$ ${lmCmd}`);
-      await runBinary(lmBin, lmArgs, 'ace-qwen3', undefined, makeLmProgressHandler(job));
+      console.log(`[Job ${jobId}] Running ace-lm:\n  ${lmCmd}`);
+      job.logs.push(`\n--- Running ace-lm ---\n$ ${lmCmd}`);
+      await runBinary(lmBin, lmArgs, 'ace-lm', undefined, makeLmProgressHandler(job));
 
-      // Collect enriched JSON files produced by ace-qwen3:
+      // Collect enriched JSON files produced by ace-lm:
       // request.json → request0.json [, request1.json, …] (placed alongside request.json)
       try {
         enrichedPaths = readdirSync(tmpDir)
@@ -670,17 +670,17 @@ async function runViaSpawn(
       } catch { /* ignore */ }
 
       if (enrichedPaths.length === 0) {
-        throw new Error('ace-qwen3 produced no enriched request files');
+        throw new Error('ace-lm produced no enriched request files');
       }
-      console.log(`[Job ${jobId}] ace-qwen3 produced ${enrichedPaths.length} enriched file(s): ${enrichedPaths.join(', ')}`);
+      console.log(`[Job ${jobId}] ace-lm produced ${enrichedPaths.length} enriched file(s): ${enrichedPaths.join(', ')}`);
     } else {
       // Cover / repaint / passthrough: pass the original request.json directly
-      // to dit-vae; no LLM enrichment step needed.
+      // to ace-synth; no LLM enrichment step needed.
       enrichedPaths = [requestPath];
-      console.log(`[Job ${jobId}] LLM step skipped (mode=${taskType}); passing request.json directly to dit-vae`);
+      console.log(`[Job ${jobId}] LLM step skipped (mode=${taskType}); passing request.json directly to ace-synth`);
     }
 
-    // ── Step 2: dit-vae — DiT + VAE (audio synthesis) ──────────────────────
+    // ── Step 2: ace-synth — DiT + VAE (audio synthesis) ──────────────────────
     job.stage = 'DiT+VAE: synthesising audio…';
 
     const ditVaeBin        = config.acestep.ditVaeBin!;
@@ -726,7 +726,7 @@ async function runViaSpawn(
     if (batchSize > 1) ditArgs.push('--batch', String(batchSize));
 
     // Cover and repaint modes both require a source audio file.
-    // dit-vae reads WAV or MP3 natively (via dr_wav / dr_mp3 in audio.h).
+    // ace-synth reads WAV or MP3 natively (via dr_wav / dr_mp3 in audio.h).
     if (params.sourceAudioUrl) {
       const srcAudioPath = resolveAudioPath(params.sourceAudioUrl);
       ditArgs.push('--src-audio', srcAudioPath);
@@ -745,15 +745,15 @@ async function runViaSpawn(
       ditArgs.push('--wav');
     }
 
-    ditArgs.push(...parseExtraArgs(process.env.DIT_VAE_EXTRA_ARGS));
+    ditArgs.push(...parseExtraArgs(process.env.ACE_SYNTH_EXTRA_ARGS));
 
     const ditCmd = `${ditVaeBin} ${ditArgs.join(' ')}`;
-    console.log(`[Job ${jobId}] Running dit-vae:\n  ${ditCmd}`);
-    job.logs.push(`\n--- Running dit-vae ---\n$ ${ditCmd}`);
-    await runBinary(ditVaeBin, ditArgs, 'dit-vae', undefined, makeDitVaeProgressHandler(job));
+    console.log(`[Job ${jobId}] Running ace-synth:\n  ${ditCmd}`);
+    job.logs.push(`\n--- Running ace-synth ---\n$ ${ditCmd}`);
+    await runBinary(ditVaeBin, ditArgs, 'ace-synth', undefined, makeDitVaeProgressHandler(job));
 
     // ── Collect generated audio files ──────────────────────────────────────
-    // dit-vae places output files alongside each enriched JSON:
+    // ace-synth places output files alongside each enriched JSON:
     //   With --wav:  request0.json → request00.wav, request01.wav, …
     //   Without --wav: request0.json → request00.mp3, request01.mp3, …
     const { copyFile, rm } = await import('fs/promises');
@@ -767,7 +767,7 @@ async function runViaSpawn(
     } catch { /* ignore */ }
 
     if (rawAudioPaths.length === 0) {
-      throw new Error('dit-vae produced no audio files');
+      throw new Error('ace-synth produced no audio files');
     }
 
     // Copy files to AUDIO_DIR with a stable, job-scoped name
@@ -1121,7 +1121,7 @@ export function getJobRawResponse(jobId: string): unknown | null {
 }
 
 /**
- * Returns the captured log lines for a job (all raw output from ace-qwen3 + dit-vae).
+ * Returns the captured log lines for a job (all raw output from ace-lm + ace-synth).
  * Optionally accepts an `after` offset to return only new lines since the last poll.
  */
 export function getJobLogs(jobId: string, after = 0): { lines: string[]; total: number; status: string } | null {
@@ -1179,7 +1179,7 @@ export interface UnderstandResult {
  *
  * The binary performs a reverse pipeline: VAE-encodes the audio, FSQ-tokenises
  * the latent, then uses the LM to generate metadata (caption, lyrics, bpm, etc.)
- * — the same fields that ace-qwen3 would fill for generation.
+ * — the same fields that ace-lm would fill for generation.
  */
 export async function runUnderstand(audioUrl: string): Promise<UnderstandResult> {
   const understandBin = config.acestep.understandBin;

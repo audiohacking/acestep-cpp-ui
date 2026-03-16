@@ -2433,7 +2433,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 <span className="relative group/tip inline-flex">
                   <Info size={12} className="text-zinc-400 cursor-help" />
                   <span className="pointer-events-none absolute hidden group-hover/tip:block bottom-5 left-0 z-50 w-56 rounded-lg bg-zinc-900 px-3 py-2 text-[10px] text-zinc-200 shadow-xl border border-white/10">
-                    MP3 (default): native binary output, smaller file. WAV: lossless, passes --wav flag to dit-vae.
+                    MP3 (default): native binary output, smaller file. WAV: lossless, passes --wav flag to ace-synth.
                   </span>
                 </span>
               </div>
@@ -2460,9 +2460,9 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               </p>
             </div>
 
-            {/* ── DiT flow matching (dit-vae) ──────────────────────── */}
+            {/* ── DiT flow matching (ace-synth) ──────────────────────── */}
             <div className="flex items-center gap-2 pt-1">
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest whitespace-nowrap">DiT flow matching (dit-vae)</span>
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest whitespace-nowrap">DiT flow matching (ace-synth)</span>
               <div className="flex-1 border-t border-zinc-200 dark:border-white/10" />
             </div>
 
@@ -2501,10 +2501,10 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
               helpText="Flow-matching schedule shift — controls the timestep distribution (shift = s·t / (1+(s−1)·t)). Turbo preset: 3.0. SFT/lego preset: 1.0. Values near 1.0 give a linear schedule; higher values front-load denoising."
             />
 
-            {/* ── LM sampling (ace-qwen3) ──────────────────────────── */}
+            {/* ── LM sampling (ace-lm) ──────────────────────────── */}
             <>
               <div className="flex items-center gap-2 pt-1">
-                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest whitespace-nowrap">LM sampling (ace-qwen3)</span>
+                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest whitespace-nowrap">LM sampling (ace-lm)</span>
                   <div className="flex-1 border-t border-zinc-200 dark:border-white/10" />
                 </div>
 
@@ -2515,7 +2515,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                     <span className="relative group/tip inline-flex">
                       <Info size={12} className="text-zinc-400 cursor-help" />
                       <span className="pointer-events-none absolute hidden group-hover/tip:block bottom-5 left-0 z-50 w-56 rounded-lg bg-zinc-900 p-2 text-[10px] leading-relaxed text-white shadow-xl">
-                        ace-qwen3 model size. 0.6B is fastest; 4B produces the best lyrics and captions.
+                        ace-lm model size. 0.6B is fastest; 4B produces the best lyrics and captions.
                       </span>
                     </span>
                   </div>
@@ -2629,7 +2629,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
                 <span className="relative group/tip inline-flex">
                   <Info size={12} className="text-zinc-400 cursor-help" />
                   <span className="pointer-events-none absolute hidden group-hover/tip:block bottom-5 left-0 z-50 w-64 rounded-lg bg-zinc-900 p-2 text-[10px] leading-relaxed text-white shadow-xl">
-                    Comma-separated FSQ token IDs produced by ace-qwen3. When non-empty, the entire LLM pass is skipped and dit-vae decodes these codes directly (passthrough mode).
+                    Comma-separated FSQ token IDs produced by ace-lm. When non-empty, the entire LLM pass is skipped and ace-synth decodes these codes directly (passthrough mode).
                   </span>
                 </span>
               </div>

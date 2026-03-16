@@ -21,10 +21,10 @@ fi
 
 # ── Binary auto-detection hint ────────────────────────────────────────────────
 BIN_DIR="${ACESTEP_BIN_DIR:-bin}"
-if [ -x "$BIN_DIR/ace-qwen3" ] && [ -x "$BIN_DIR/dit-vae" ]; then
+if [ -x "$BIN_DIR/ace-lm" ] && [ -x "$BIN_DIR/ace-synth" ]; then
   echo "acestep.cpp binaries: $BIN_DIR/ ✓"
-elif [ -n "${ACE_QWEN3_BIN:-}" ] && [ -x "${ACE_QWEN3_BIN}" ]; then
-  echo "ace-qwen3: $ACE_QWEN3_BIN ✓"
+elif [ -n "${ACE_LM_BIN:-}" ] && [ -x "${ACE_LM_BIN}" ]; then
+  echo "ace-lm: $ACE_LM_BIN ✓"
 elif [ -n "${ACESTEP_BIN:-}" ] && [ -x "${ACESTEP_BIN}" ]; then
   # Legacy single-binary mode — still accepted
   echo "acestep-generate: $ACESTEP_BIN ✓"

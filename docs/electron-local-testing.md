@@ -46,7 +46,7 @@ Both archives are flat tarballs (no subdirectory).  Run the command for your pla
 mkdir -p bin
 
 curl -fsSL --retry 3 \
-  https://github.com/audiohacking/acestep.cpp/releases/download/v0.0.1/acestep-macos-arm64-metal.tar.gz \
+  https://github.com/audiohacking/acestep.cpp/releases/download/v0.0.2/acestep-macos-arm64-metal.tar.gz \
   -o acestep-macos-arm64-metal.tar.gz
 
 echo "Archive contents:"
@@ -67,7 +67,7 @@ ls -lh bin/
 mkdir -p bin
 
 curl -fsSL --retry 3 \
-  https://github.com/audiohacking/acestep.cpp/releases/download/v0.0.1/acestep-linux-x64.tar.gz \
+  https://github.com/audiohacking/acestep.cpp/releases/download/v0.0.2/acestep-linux-x64.tar.gz \
   -o acestep-linux-x64.tar.gz
 
 echo "Archive contents:"
@@ -93,7 +93,7 @@ Run:
 ```bash
 GGML_VER="0.9.7"
 ok=1
-for bin in ace-qwen3 dit-vae neural-codec; do
+for bin in ace-lm ace-synth neural-codec; do
   [ -f "bin/$bin" ] && [ -x "bin/$bin" ] \
     && echo "✅  bin/$bin" \
     || { echo "❌  bin/$bin — missing or not executable"; ok=0; }
@@ -116,7 +116,7 @@ Run:
 
 ```bash
 ok=1
-for bin in ace-qwen3 dit-vae neural-codec; do
+for bin in ace-lm ace-synth neural-codec; do
   [ -f "bin/$bin" ] && [ -x "bin/$bin" ] \
     && echo "✅  bin/$bin" \
     || { echo "❌  bin/$bin — missing or not executable"; ok=0; }
@@ -192,7 +192,7 @@ While the app is running, open a second terminal and confirm the environment var
 ### macOS
 
 ```bash
-# Find the ace-qwen3 / dit-vae child process (if a generation is running) or
+# Find the ace-lm / ace-synth child process (if a generation is running) or
 # inspect the Electron main process env via the logs directory:
 cat ~/Library/Application\ Support/ACE-Step\ UI/logs/server.log | grep -i "DYLD"
 ```
@@ -259,7 +259,7 @@ libggml-base.so.0 -> libggml-base.so
 1. With models present (or after downloading them), enter a short prompt such as `upbeat electronic music`
 2. Set **Duration** to `5s` in the Advanced panel to keep the test fast
 3. Click **Generate**
-4. Watch the Debug tab — you should see `ace-qwen3` and `dit-vae` output lines appear
+4. Watch the Debug tab — you should see `ace-lm` and `ace-synth` output lines appear
 5. The generated audio file should appear in the Songs list and be playable
 
 If the binaries fail to load their shared libraries you will see an error like:

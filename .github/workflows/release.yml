@@ -154,7 +154,7 @@ jobs:
           [ -f .env ] && export $(grep -v '^#' .env | grep -v '^\s*$' | xargs)
           
           # ── First-run: compile acestep.cpp ───────────────────────────────────────────
-          if [ ! -x "$DIR/bin/ace-qwen3" ] || [ ! -x "$DIR/bin/dit-vae" ]; then
+          if [ ! -x "$DIR/bin/ace-lm" ] || [ ! -x "$DIR/bin/ace-synth" ]; then
             echo "═══════════════════════════════════════════════════════"
             echo "  First run: building acestep.cpp for your hardware"
             echo "  GPU support (CUDA / ROCm / Vulkan / Metal) is"
@@ -180,15 +180,15 @@ jobs:
           fi
           
           # ── Start the server ─────────────────────────────────────────────────────────
-          : "${ACE_QWEN3_BIN:=$DIR/bin/ace-qwen3}"
-          : "${DIT_VAE_BIN:=$DIR/bin/dit-vae}"
+          : "${ACE_LM_BIN:=$DIR/bin/ace-lm}"
+          : "${ACE_SYNTH_BIN:=$DIR/bin/ace-synth}"
           : "${PORT:=3001}"
           
           mkdir -p logs data public/audio
           
           echo "Starting ACE-Step UI on port $PORT ..."
-          ACE_QWEN3_BIN="$ACE_QWEN3_BIN" \
-          DIT_VAE_BIN="$DIT_VAE_BIN" \
+          ACE_LM_BIN="$ACE_LM_BIN" \
+          ACE_SYNTH_BIN="$ACE_SYNTH_BIN" \
           MODELS_DIR="$MODELS_DIR" \
           PORT="$PORT" \
           DATABASE_PATH="$DIR/data/acestep.db" \
@@ -224,7 +224,7 @@ jobs:
           )
           
           :: First-run: compile acestep.cpp
-          if not exist "%DIR%bin\ace-qwen3.exe" (
+          if not exist "%DIR%bin\ace-lm.exe" (
               echo ═══════════════════════════════════════════════════════
               echo   First run: building acestep.cpp for your hardware
               echo   GPU support ^(CUDA / Vulkan^) is detected automatically.
@@ -250,8 +250,8 @@ jobs:
           )
           
           :: Start the server
-          if "%ACE_QWEN3_BIN%"=="" set ACE_QWEN3_BIN=%DIR%bin\ace-qwen3.exe
-          if "%DIT_VAE_BIN%"==""   set DIT_VAE_BIN=%DIR%bin\dit-vae.exe
+          if "%ACE_LM_BIN%"=="" set ACE_LM_BIN=%DIR%bin\ace-lm.exe
+          if "%ACE_SYNTH_BIN%"==""   set ACE_SYNTH_BIN=%DIR%bin\ace-synth.exe
           if "%PORT%"==""           set PORT=3001
           mkdir logs 2>nul & mkdir data 2>nul & mkdir public\audio 2>nul
           
@@ -315,8 +315,8 @@ jobs:
           
           | Variable | Default | Description |
           |----------|---------|-------------|
-          | `ACE_QWEN3_BIN` | `./bin/ace-qwen3` | Path to the ace-qwen3 LLM binary |
-          | `DIT_VAE_BIN` | `./bin/dit-vae` | Path to the dit-vae binary |
+          | `ACE_LM_BIN` | `./bin/ace-lm` | Path to the ace-lm LLM binary |
+          | `ACE_SYNTH_BIN` | `./bin/ace-synth` | Path to the ace-synth binary |
           | `MODELS_DIR` | `./models` | Directory containing GGUF model files |
           | `PORT` | `3001` | API + UI server port |
           | `AUDIO_DIR` | `./public/audio` | Where generated audio is stored |
