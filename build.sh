@@ -137,7 +137,7 @@ cmake --build "$BUILD_DIR" --parallel
 # ── Copy binaries to bin/ ─────────────────────────────────────────────────────
 mkdir -p "$BIN_DIR"
 copied=0
-for name in ace-qwen3 dit-vae ace-understand neural-codec; do
+for name in ace-lm ace-synth ace-understand neural-codec; do
     found=$(find "$BUILD_DIR" -name "$name" -type f 2>/dev/null | head -1)
     if [ -n "$found" ]; then
         cp "$found" "$BIN_DIR/$name"

@@ -5,7 +5,7 @@
  * ─────────────────
  * 1. ensureDirs()            create user-space directories
  * 2. setupLibraryPaths()     set LD_LIBRARY_PATH (Linux) / DYLD_LIBRARY_PATH
- *                            (macOS) to BIN_DIR so that ace-qwen3 / dit-vae
+ *                            (macOS) to BIN_DIR so that ace-lm / ace-synth
  *                            child processes find their shared libraries.
  *                            Linux ELFs have a hardcoded RUNPATH to the CI
  *                            build tree; macOS dylibs use versioned install
@@ -124,7 +124,7 @@ function ensureDirs () {
 
 /**
  * Prepend BIN_DIR to the platform's dynamic-library search path so that the
- * ace-qwen3 / dit-vae child processes find their bundled shared libraries.
+ * ace-lm / ace-synth child processes find their bundled shared libraries.
  *
  * Linux: The ELFs have a hardcoded RUNPATH pointing to the CI build tree
  *   (/home/runner/work/…) which never exists on user machines.
@@ -231,10 +231,10 @@ async function startServer () {
     process.env.JWT_SECRET = 'ace-step-ui-electron-local-secret';
   }
 
-  const aceQwen3 = path.join(BIN_DIR, `ace-qwen3${binExt}`);
-  const ditVae   = path.join(BIN_DIR, `dit-vae${binExt}`);
-  if (fs.existsSync(aceQwen3)) process.env.ACE_QWEN3_BIN = aceQwen3;
-  if (fs.existsSync(ditVae))   process.env.DIT_VAE_BIN   = ditVae;
+  const aceLm    = path.join(BIN_DIR, `ace-lm${binExt}`);
+  const aceSynth = path.join(BIN_DIR, `ace-synth${binExt}`);
+  if (fs.existsSync(aceLm))    process.env.ACE_LM_BIN    = aceLm;
+  if (fs.existsSync(aceSynth)) process.env.ACE_SYNTH_BIN = aceSynth;
 
   // In packaged mode redirect server stdout/stderr to a persistent log file
   if (isPackaged) {

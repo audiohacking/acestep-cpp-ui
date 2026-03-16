@@ -7,13 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v0.0.1)"
+        description: "Release tag (e.g. v0.0.2)"
         required: true
-        default: "v0.0.1"
+        default: "v0.0.2"
       binary_version:
-        description: "acestep.cpp release tag to bundle (e.g. v0.0.1)"
+        description: "acestep.cpp release tag to bundle (e.g. v0.0.2)"
         required: false
-        default: "v0.0.1"
+        default: "v0.0.2"
 
 concurrency:
   group: electron-release-${{ github.ref }}
@@ -22,7 +22,7 @@ concurrency:
 env:
   NODE_VERSION: "20"
   # acestep.cpp binary release to bundle; override via workflow_dispatch input.
-  BINARY_VERSION: ${{ github.event.inputs.binary_version || 'v0.0.1' }}
+  BINARY_VERSION: ${{ github.event.inputs.binary_version || 'v0.0.2' }}
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Shared setup steps are defined as a reusable composite action inline via
@@ -30,7 +30,7 @@ env:
 # log is easy to read and debug per platform.
 #
 # Archive layout (flat tarball — all files at ./):
-#   bin/<binary>          ace-qwen3, dit-vae, neural-codec, …
+#   bin/<binary>          ace-lm, ace-synth, neural-codec, …
 #   bin/lib<name>.so      Linux shared libraries (unversioned names)
 #   bin/lib<name>.dylib   macOS dylibs (versioned + symlink chain)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -93,7 +93,7 @@ jobs:
               else echo "⚠️  bin/${name} — missing"; warn=1; fi
             done
           done
-          for bin in ace-qwen3 dit-vae neural-codec; do
+          for bin in ace-lm ace-synth neural-codec; do
             if [ -f "bin/${bin}" ] && [ -x "bin/${bin}" ]; then echo "✅  bin/${bin}"
             else echo "⚠️  bin/${bin} — not found or not executable"; warn=1; fi
           done
@@ -104,7 +104,7 @@ jobs:
         shell: bash
         run: |
           TAG="${GITHUB_REF_NAME:-}"
-          [[ "$TAG" == v* ]] || TAG="${{ github.event.inputs.tag || 'v0.0.1-electron' }}"
+          [[ "$TAG" == v* ]] || TAG="${{ github.event.inputs.tag || 'v0.0.2-electron' }}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           
       - name: Rebuild native modules for Electron
@@ -237,7 +237,7 @@ jobs:
         shell: bash
         run: |
           warn=0
-          for bin in ace-qwen3 dit-vae neural-codec; do
+          for bin in ace-lm ace-synth neural-codec; do
             if [ -f "bin/${bin}" ] && [ -x "bin/${bin}" ]; then echo "✅  bin/${bin}"
             else echo "⚠️  bin/${bin} — not found or not executable"; warn=1; fi
           done
@@ -258,7 +258,7 @@ jobs:
         shell: bash
         run: |
           TAG="${GITHUB_REF_NAME:-}"
-          [[ "$TAG" == v* ]] || TAG="${{ github.event.inputs.tag || 'v0.0.1-electron' }}"
+          [[ "$TAG" == v* ]] || TAG="${{ github.event.inputs.tag || 'v0.0.2-electron' }}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Build Electron package (Linux)
@@ -306,7 +306,7 @@ jobs:
         shell: bash
         run: |
           TAG="${GITHUB_REF_NAME:-}"
-          [[ "$TAG" == v* ]] || TAG="${{ github.event.inputs.tag || 'v0.0.1-electron' }}"
+          [[ "$TAG" == v* ]] || TAG="${{ github.event.inputs.tag || 'v0.0.2-electron' }}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Check if Release Exists

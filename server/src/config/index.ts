@@ -31,20 +31,20 @@ function resolveFromRoot(p: string): string {
 
 // ── Binary resolution ───────────────────────────────────────────────────────
 
-/** Resolves the ace-qwen3 LLM binary path (step 1 of the pipeline). */
+/** Resolves the ace-lm LLM binary path (step 1 of the pipeline). */
 function resolveLmBin(): string {
-  if (process.env.ACE_QWEN3_BIN) return resolveFromRoot(process.env.ACE_QWEN3_BIN);
-  for (const name of ['ace-qwen3', 'ace-qwen3.exe']) {
+  if (process.env.ACE_LM_BIN) return resolveFromRoot(process.env.ACE_LM_BIN);
+  for (const name of ['ace-lm', 'ace-lm.exe']) {
     const p = path.join(APP_ROOT, 'bin', name);
     if (existsSync(p)) return p;
   }
   return '';
 }
 
-/** Resolves the dit-vae binary path (step 2 of the pipeline). */
+/** Resolves the ace-synth binary path (step 2 of the pipeline). */
 function resolveDitVaeBin(): string {
-  if (process.env.DIT_VAE_BIN) return resolveFromRoot(process.env.DIT_VAE_BIN);
-  for (const name of ['dit-vae', 'dit-vae.exe']) {
+  if (process.env.ACE_SYNTH_BIN) return resolveFromRoot(process.env.ACE_SYNTH_BIN);
+  for (const name of ['ace-synth', 'ace-synth.exe']) {
     const p = path.join(APP_ROOT, 'bin', name);
     if (existsSync(p)) return p;
   }
@@ -219,10 +219,10 @@ const resolvedTextEncoderModel = resolveTextEncoderModel(modelsDir);
 const resolvedVaeModel   = resolveVaeModel(modelsDir);
 
 // Log detected paths at startup
-if (resolvedLmBin)             console.log(`[config] ace-qwen3:      ${resolvedLmBin}`);
-else                           console.log('[config] ace-qwen3:      not found (set ACE_QWEN3_BIN)');
-if (resolvedDitVaeBin)         console.log(`[config] dit-vae:        ${resolvedDitVaeBin}`);
-else                           console.log('[config] dit-vae:        not found (set DIT_VAE_BIN)');
+if (resolvedLmBin)             console.log(`[config] ace-lm:      ${resolvedLmBin}`);
+else                           console.log('[config] ace-lm:      not found (set ACE_LM_BIN)');
+if (resolvedDitVaeBin)         console.log(`[config] ace-synth:        ${resolvedDitVaeBin}`);
+else                           console.log('[config] ace-synth:        not found (set ACE_SYNTH_BIN)');
 if (resolvedUnderstandBin)     console.log(`[config] ace-understand: ${resolvedUnderstandBin}`);
 else                           console.log('[config] ace-understand: not found (set ACE_UNDERSTAND_BIN)');
 if (resolvedLmModel)           console.log(`[config] LM model:       ${resolvedLmModel}`);
@@ -247,7 +247,7 @@ export const config = {
     path: resolveFromRoot(process.env.DATABASE_PATH || path.join(APP_ROOT, 'data', 'acestep.db')),
   },
 
-  // acestep-cpp — spawn mode uses ace-qwen3 + dit-vae directly.
+  // acestep-cpp — spawn mode uses ace-lm + ace-synth directly.
   // HTTP mode fallback: calls ACESTEP_API_URL (e.g. a running acestep-cpp server).
   acestep: {
     // Two-binary spawn mode (acestep.cpp native pipeline)

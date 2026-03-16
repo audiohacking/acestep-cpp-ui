@@ -118,7 +118,7 @@ if %ERRORLEVEL% NEQ 0 ( echo cmake build failed & exit /b 1 )
 :: Copy binaries
 if not exist "%BIN_DIR%" mkdir "%BIN_DIR%"
 set COPIED=0
-for %%N in (ace-qwen3 dit-vae ace-understand neural-codec) do (
+for %%N in (ace-lm ace-synth ace-understand neural-codec) do (
     set FOUND=
     for /r "%BUILD_DIR%" %%F in (%%N.exe) do (
         if exist "%%F" if "!FOUND!"=="" set FOUND=%%F
