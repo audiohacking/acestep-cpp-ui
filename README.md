@@ -1,6 +1,6 @@
-<h1 align="center">
+<p align="center">
   <img width="250" alt="image" src="https://github.com/user-attachments/assets/0b34f9e0-9323-4032-96d1-5837aaca18af" />
-</h1>
+</p>
 <p align="center">
   <img width="800" height="431" alt="image" src="https://github.com/user-attachments/assets/89825300-2cef-4914-9ba7-46234ffe4084" />
 </p>
@@ -12,15 +12,16 @@
 
 ---
 
-## 🎯 About This Fork
+## 🎯 Acestep.cpp + Acestep UI
 
-**acestep-cpp-ui** is a fork of the original ace-step-ui project that replaces the Python/Gradio backend with [acestep.cpp](https://github.com/ServeurpersoCom/acestep.cpp).
+**acestep-cpp-ui** is a fork of the original ace-step-ui replacing Python/Gradio backend with [acestep.cpp](https://github.com/ServeurpersoCom/acestep.cpp).
 
 - **No Python environment to manage** — just build once and run
 - **GGUF quantization** — run larger models with less VRAM
 - **Broader GPU support** — CUDA, ROCm/HIP (AMD), Vulkan, and Metal (macOS)
 - **Faster startup** — no Python interpreter or virtual environment overhead
 - **Single bundle** — build script, model downloader, and UI in one repo
+- **Stripped** - functions stripped to match acestep.cpp's capabilities
 
 ---
 
