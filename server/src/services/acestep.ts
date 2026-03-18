@@ -649,7 +649,7 @@ async function runViaSpawn(
       const lmModel = config.acestep.lmModel;
       if (!lmModel) throw new Error('LM model not found — run models.sh first');
 
-      const lmArgs: string[] = ['--request', requestPath, '--model', lmModel];
+      const lmArgs: string[] = ['--request', requestPath, '--lm', lmModel];
 
       const batchSize = Math.min(Math.max(params.batchSize ?? 1, 1), 8);
       if (batchSize > 1) lmArgs.push('--batch', String(batchSize));
@@ -717,7 +717,7 @@ async function runViaSpawn(
 
     const ditArgs: string[] = [
       '--request',      ...enrichedPaths,
-      '--text-encoder', textEncoderModel,
+      '--embedding', textEncoderModel,
       '--dit',          ditModel,
       '--vae',          vaeModel,
     ];
@@ -1209,7 +1209,7 @@ export async function runUnderstand(audioUrl: string): Promise<UnderstandResult>
       '--src-audio', srcAudioPath,
       '--dit',       ditModel,
       '--vae',       vaeModel,
-      '--model',     lmModel,
+      '--lm',        lmModel,
       '-o',          outJsonPath,
     ];
 

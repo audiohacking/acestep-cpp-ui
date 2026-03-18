@@ -799,7 +799,7 @@ router.post('/format', authMiddleware, async (req: AuthenticatedRequest, res: Re
       if (timeSignature)         reqJson.timesignature  = timeSignature;
       await wf(reqPath, JSON.stringify(reqJson, null, 2));
 
-      const args: string[] = ['--request', reqPath, '--model', config.acestep.lmModel];
+      const args: string[] = ['--request', reqPath, '--lm', config.acestep.lmModel];
       const { spawn } = await import('child_process');
       const result = await new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
         const proc = spawn(config.acestep.lmBin!, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
