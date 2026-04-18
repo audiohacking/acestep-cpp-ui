@@ -66,7 +66,12 @@ function buildCatalog(): ModelFile[] {
     { key: 'turbo-shift1',     label: 'Turbo Shift-1',   essential: false },
     { key: 'turbo-shift3',     label: 'Turbo Shift-3',   essential: false },
     { key: 'turbo-continuous', label: 'Turbo Continuous',essential: false },
+    { key: 'xl-turbo',         label: 'XL Turbo',        essential: false },
+    { key: 'xl-sft',           label: 'XL SFT',          essential: false },
+    { key: 'xl-sftturbo50',    label: 'XL SFT/Turbo 50/50', essential: false },
+    { key: 'xl-base',          label: 'XL Base',         essential: false },
   ];
+  
   for (const v of ditVariants) {
     for (const q of QUANTS_DIT) {
       files.push({
@@ -76,7 +81,9 @@ function buildCatalog(): ModelFile[] {
         quant: q,
         variant: v.key,
         essential: v.essential && q === 'Q8_0',
-        approxSizeMB: q === 'BF16' ? 5200 : q === 'Q8_0' ? 2900 : q === 'Q6_K' ? 2200 : q === 'Q5_K_M' ? 1800 : 1500,
+        approxSizeMB: v.key.startsWith('xl')
+          ? (q === 'BF16' ? 10000 : q === 'Q8_0' ? 5500 : q === 'Q6_K' ? 4100 : q === 'Q5_K_M' ? 3500 : 3000)
+          : (q === 'BF16' ? 5200 : q === 'Q8_0' ? 2900 : q === 'Q6_K' ? 2200 : q === 'Q5_K_M' ? 1800 : 1500),
       });
     }
   }

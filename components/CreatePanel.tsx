@@ -284,6 +284,10 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       { id: 'acestep-v15-turbo-shift1', name: 'acestep-v15-turbo-shift1' },
       { id: 'acestep-v15-turbo-shift3', name: 'acestep-v15-turbo-shift3' },
       { id: 'acestep-v15-turbo-continuous', name: 'acestep-v15-turbo-continuous' },
+      { id: 'acestep-v15-xl-turbo', name: 'acestep-v15-xl-turbo' },
+      { id: 'acestep-v15-xl-sftturbo50', name: 'acestep-v15-xl-sftturbo50' },
+      { id: 'acestep-v15-xl-sft', name: 'acestep-v15-xl-sft' },
+      { id: 'acestep-v15-xl-base', name: 'acestep-v15-xl-base' },
     ];
   }, [fetchedModels]);
 
@@ -296,6 +300,10 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
       'acestep-v15-turbo-shift3': '1.5TS3',
       'acestep-v15-turbo-continuous': '1.5TC',
       'acestep-v15-turbo': '1.5T',
+      'acestep-v15-xl-turbo': '1.5XL-T',
+      'acestep-v15-xl-sftturbo50': '1.5XL-ST50',
+      'acestep-v15-xl-sft': '1.5XL-S',
+      'acestep-v15-xl-base': '1.5XL-B',
     };
     return mapping[modelId] || modelId;
   };
@@ -312,7 +320,7 @@ export const CreatePanel: React.FC<CreatePanelProps> = ({
 
   // Check if model is the base variant (required for lego)
   const isBaseModel = (modelId: string): boolean => {
-    return modelId.startsWith('acestep-v15-base');
+    return modelId.includes('acestep-v15-base') || modelId.includes('acestep-v15-xl-base');
   };
 
   // SFT model download/availability state for repaint mode
